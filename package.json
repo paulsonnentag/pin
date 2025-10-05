@@ -10,6 +10,7 @@
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^26.0.1",
+    "@rollup/plugin-json": "^6.1.0",
     "@rollup/plugin-node-resolve": "^15.2.3",
     "@rollup/plugin-typescript": "^11.1.6",
     "@types/chrome": "^0.0.270",
@@ -18,5 +19,8 @@
     "rollup-plugin-copy": "^3.5.0",
     "tslib": "^2.7.0",
     "typescript": "^5.5.4"
+  },
+  "dependencies": {
+    "@babel/standalone": "^7.28.4"
   }
 }
