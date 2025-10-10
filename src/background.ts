@@ -1,112 +1,175 @@
-import * as Babel from "@babel/standalone";
+import browser from "webextension-polyfill";
+import * as acorn from "acorn";
+import * as walk from "acorn-walk";
+import { generate } from "astring";
 
-function modifyMaplibreSource(sourceCode: string): string | null {
-  try {
-    // Check if file contains "maplibre"
-    if (!sourceCode.toLowerCase().includes("maplibre")) {
-      return null;
-    }
+console.log("start up");
 
-    let foundMarker = false;
+// Pattern configuration
+interface InjectionPoint {
+  target: string; // "constructor" or method name
+  label: string; // Label for console.log
+}
 
-    // Parse and transform with Babel standalone
-    const result = Babel.transform(sourceCode, {
-      presets: [],
-      plugins: [
-        function () {
-          return {
-            visitor: {
-              ClassDeclaration(path: any) {
-                const methods = path.node.body.body
-                  .filter((node: any) => node.type === "ClassMethod")
-                  .map((node: any) => (node.key.type === "Identifier" ? node.key.name : null))
-                  .filter(Boolean);
+interface ClassPattern {
+  name: string; // Descriptive name for logging
+  requiredMethods: string[]; // Method names that must be present
+  injections: InjectionPoint[];
+}
 
-                // Check for Marker-specific methods
-                const hasAddTo = methods.includes("addTo");
-                const hasRemove = methods.includes("remove");
-                const hasSetLngLat = methods.includes("setLngLat");
-                const hasGetLngLat = methods.includes("getLngLat");
+interface LibraryPattern {
+  keyword: string; // Keyword to search for in script files
+  classes: ClassPattern[];
+}
 
-                if (hasAddTo && hasRemove && hasSetLngLat & hasGetLngLat) {
-                  foundMarker = true;
+// Define patterns for libraries to intercept
+const LIBRARY_PATTERNS: LibraryPattern[] = [
+  {
+    keyword: "maplibre",
+    classes: [
+      {
+        name: "Map",
+        requiredMethods: ["addControl", "removeControl", "addSource", "addLayer"],
+        injections: [{ target: "constructor", label: "MapLibre Map created" }],
+      },
+      {
+        name: "Marker",
+        requiredMethods: ["setLngLat", "addTo", "remove"],
+        injections: [
+          { target: "constructor", label: "MapLibre Marker created" },
+          { target: "addTo", label: "MapLibre Marker.addTo called" },
+        ],
+      },
+    ],
+  },
+];
 
-                  // Modify Marker methods
-                  path.traverse({
-                    ClassMethod(methodPath: any) {
-                      if (methodPath.node.key.type === "Identifier" && methodPath.node.key.name === "addTo") {
-                        const body = methodPath.node.body;
-                        if (body.type === "BlockStatement") {
-                          const logStatement = {
-                            type: "ExpressionStatement",
-                            expression: {
-                              type: "CallExpression",
-                              callee: {
-                                type: "MemberExpression",
-                                object: { type: "Identifier", name: "console" },
-                                property: { type: "Identifier", name: "log" },
-                              },
-                              arguments: [
-                                { type: "StringLiteral", value: "[MapLibre] Marker added:" },
-                                {
-                                  type: "CallExpression",
-                                  callee: {
-                                    type: "MemberExpression",
-                                    object: { type: "ThisExpression" },
-                                    property: { type: "Identifier", name: "getLngLat" },
-                                  },
-                                  arguments: [],
-                                },
-                              ],
-                            },
-                          };
-                          body.body.push(logStatement);
-                        }
-                      } else if (methodPath.node.key.type === "Identifier" && methodPath.node.key.name === "remove") {
-                        const body = methodPath.node.body;
-                        if (body.type === "BlockStatement") {
-                          const logStatement = {
-                            type: "ExpressionStatement",
-                            expression: {
-                              type: "CallExpression",
-                              callee: {
-                                type: "MemberExpression",
-                                object: { type: "Identifier", name: "console" },
-                                property: { type: "Identifier", name: "log" },
-                              },
-                              arguments: [
-                                { type: "StringLiteral", value: "[MapLibre] Marker removed:" },
-                                {
-                                  type: "CallExpression",
-                                  callee: {
-                                    type: "MemberExpression",
-                                    object: { type: "ThisExpression" },
-                                    property: { type: "Identifier", name: "getLngLat" },
-                                  },
-                                  arguments: [],
-                                },
-                              ],
-                            },
-                          };
-                          body.body.unshift(logStatement);
-                        }
-                      }
-                    },
-                  });
-                }
-              },
-            },
-          };
-        },
+// Create a console.log AST node
+function createConsoleLogNode(label: string): any {
+  return {
+    type: "ExpressionStatement",
+    expression: {
+      type: "CallExpression",
+      callee: {
+        type: "MemberExpression",
+        object: { type: "Identifier", name: "console" },
+        property: { type: "Identifier", name: "log" },
+        computed: false,
+      },
+      arguments: [
+        { type: "Literal", value: label, raw: `"${label}"` },
+        { type: "Identifier", name: "arguments" },
       ],
-    });
+    },
+  };
+}
 
-    if (!result || !result.code || !foundMarker) {
-      return null;
+// Extract method names from a class body
+function extractMethodNames(classBody: any[]): string[] {
+  const methodNames: string[] = [];
+  for (const member of classBody) {
+    if (member.type === "MethodDefinition" && member.key.type === "Identifier") {
+      methodNames.push(member.key.name);
     }
+  }
+  return methodNames;
+}
 
-    return result.code;
+// Check if a class matches a pattern (all required methods must be present)
+function matchesPattern(methodNames: string[], requiredMethods: string[]): boolean {
+  return requiredMethods.every((required) => methodNames.includes(required));
+}
+
+// Inject console.log into a method or constructor
+function injectIntoMethod(method: any, label: string): void {
+  if (method.value && method.value.type === "FunctionExpression" && method.value.body) {
+    const body = method.value.body;
+    if (body.type === "BlockStatement" && Array.isArray(body.body)) {
+      const consoleLog = createConsoleLogNode(label);
+      body.body.unshift(consoleLog);
+    }
+  }
+}
+
+// Process and modify source code based on patterns
+function modifySourceWithPatterns(source: string, patterns: LibraryPattern[]): string | null {
+  // Check if source matches any pattern keyword
+  const matchingPattern = patterns.find((pattern) => source.toLowerCase().includes(pattern.keyword.toLowerCase()));
+
+  if (!matchingPattern) {
+    return null;
+  }
+
+  console.log(`[Interceptor] Found keyword: ${matchingPattern.keyword}`);
+
+  let ast: acorn.Node;
+  try {
+    ast = acorn.parse(source, {
+      ecmaVersion: "latest",
+      sourceType: "module",
+    });
   } catch (error) {
+    console.error("[Interceptor] Failed to parse source:", error);
+    return null;
+  }
+
+  let modified = false;
+
+  // Traverse the AST to find classes
+  walk.simple(ast, {
+    ClassDeclaration(node: any) {
+      const methodNames = extractMethodNames(node.body.body);
+
+      // Check against each class pattern
+      for (const classPattern of matchingPattern.classes) {
+        if (matchesPattern(methodNames, classPattern.requiredMethods)) {
+          console.log(`[Interceptor] Matched class: ${classPattern.name}`);
+
+          // Inject code into specified methods/constructor
+          for (const injection of classPattern.injections) {
+            const method = node.body.body.find((member: any) => member.type === "MethodDefinition" && member.key.type === "Identifier" && member.key.name === injection.target);
+
+            if (method) {
+              console.log(`[Interceptor] Injecting into ${injection.target}`);
+              injectIntoMethod(method, injection.label);
+              modified = true;
+            }
+          }
+        }
+      }
+    },
+    ClassExpression(node: any) {
+      const methodNames = extractMethodNames(node.body.body);
+
+      // Check against each class pattern
+      for (const classPattern of matchingPattern.classes) {
+        if (matchesPattern(methodNames, classPattern.requiredMethods)) {
+          console.log(`[Interceptor] Matched class expression: ${classPattern.name}`);
+
+          // Inject code into specified methods/constructor
+          for (const injection of classPattern.injections) {
+            const method = node.body.body.find((member: any) => member.type === "MethodDefinition" && member.key.type === "Identifier" && member.key.name === injection.target);
+
+            if (method) {
+              console.log(`[Interceptor] Injecting into ${injection.target}`);
+              injectIntoMethod(method, injection.label);
+              modified = true;
+            }
+          }
+        }
+      }
+    },
+  });
+
+  if (!modified) {
+    return null;
+  }
+
+  // Serialize the modified AST back to code
+  try {
+    return generate(ast);
+  } catch (error) {
+    console.error("[Interceptor] Failed to generate code:", error);
     return null;
   }
 }
@@ -133,10 +196,10 @@ browser.webRequest.onBeforeRequest.addListener(
         responseData += decoder.decode();
 
         // Try to modify the source
-        const modifiedSource = modifyMaplibreSource(responseData);
+        const modifiedSource = modifySourceWithPatterns(responseData, LIBRARY_PATTERNS);
 
         if (modifiedSource) {
-          console.log("[MapLibre] Modified script:", details.url);
+          console.log("[Interceptor] Modified script:", details.url);
           filter.write(encoder.encode(modifiedSource));
         } else {
           // Write original source

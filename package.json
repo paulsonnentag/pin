@@ -1,26 +1,26 @@
 {
   "name": "pin",
   "version": "1.0.0",
-  "description": "Pin extension",
+  "description": "Pin",
   "private": true,
   "scripts": {
-    "build": "rollup -c",
-    "watch": "rollup -c -w",
+    "build": "vite build",
+    "watch": "vite build --watch",
     "clean": "rm -rf dist"
   },
   "devDependencies": {
-    "@rollup/plugin-commonjs": "^26.0.1",
-    "@rollup/plugin-json": "^6.1.0",
-    "@rollup/plugin-node-resolve": "^15.2.3",
-    "@rollup/plugin-typescript": "^11.1.6",
     "@types/chrome": "^0.0.270",
     "@types/webextension-polyfill": "^0.12.4",
     "rollup": "^4.21.2",
     "rollup-plugin-copy": "^3.5.0",
     "tslib": "^2.7.0",
-    "typescript": "^5.5.4"
+    "typescript": "^5.5.4",
+    "vite": "^7.1.9"
   },
   "dependencies": {
-    "@babel/standalone": "^7.28.4"
+    "acorn": "^8.15.0",
+    "acorn-walk": "^8.3.4",
+    "astring": "^1.9.0",
+    "webextension-polyfill": "^0.12.0"
   }
 }
