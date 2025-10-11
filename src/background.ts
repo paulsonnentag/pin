@@ -2,63 +2,40 @@ import browser from "webextension-polyfill";
 import * as acorn from "acorn";
 import * as walk from "acorn-walk";
 import { generate } from "astring";
+import { LIBRARY_PATTERNS, type LibraryPattern } from "./patterns";
 
-console.log("start up");
+// Create an injection node from a function expression
+function createInjectionNode(injectorFn: (...args: any[]) => void): any {
+  // Convert the function to a string and parse it as AST
+  const fnString = injectorFn.toString();
 
-// Pattern configuration
-interface InjectionPoint {
-  target: string; // "constructor" or method name
-  label: string; // Label for console.log
-}
+  // Parse the function expression
+  let fnExpression: any;
+  try {
+    // Try parsing as arrow function or regular function
+    const parsed = acorn.parse(`(${fnString})`, {
+      ecmaVersion: "latest",
+    }) as any;
 
-interface ClassPattern {
-  name: string; // Descriptive name for logging
-  requiredMethods: string[]; // Method names that must be present
-  injections: InjectionPoint[];
-}
+    // Extract the function expression from the parsed program
+    fnExpression = parsed.body[0].expression;
+  } catch (error) {
+    console.error("[Interceptor] Failed to parse injector function:", error);
+    return null;
+  }
 
-interface LibraryPattern {
-  keyword: string; // Keyword to search for in script files
-  classes: ClassPattern[];
-}
-
-// Define patterns for libraries to intercept
-const LIBRARY_PATTERNS: LibraryPattern[] = [
-  {
-    keyword: "maplibre",
-    classes: [
-      {
-        name: "Map",
-        requiredMethods: ["addControl", "removeControl", "addSource", "addLayer"],
-        injections: [{ target: "constructor", label: "MapLibre Map created" }],
-      },
-      {
-        name: "Marker",
-        requiredMethods: ["setLngLat", "addTo", "remove"],
-        injections: [
-          { target: "constructor", label: "MapLibre Marker created" },
-          { target: "addTo", label: "MapLibre Marker.addTo called" },
-        ],
-      },
-    ],
-  },
-];
-
-// Create a console.log AST node
-function createConsoleLogNode(label: string): any {
+  // Create a call expression that invokes the function with spread arguments
+  // Result: ((injectorFn)(...arguments))
   return {
     type: "ExpressionStatement",
     expression: {
       type: "CallExpression",
-      callee: {
-        type: "MemberExpression",
-        object: { type: "Identifier", name: "console" },
-        property: { type: "Identifier", name: "log" },
-        computed: false,
-      },
+      callee: fnExpression,
       arguments: [
-        { type: "Literal", value: label, raw: `"${label}"` },
-        { type: "Identifier", name: "arguments" },
+        {
+          type: "SpreadElement",
+          argument: { type: "Identifier", name: "arguments" },
+        },
       ],
     },
   };
@@ -80,15 +57,19 @@ function matchesPattern(methodNames: string[], requiredMethods: string[]): boole
   return requiredMethods.every((required) => methodNames.includes(required));
 }
 
-// Inject console.log into a method or constructor
-function injectIntoMethod(method: any, label: string): void {
+// Inject a function call into a method or constructor
+function injectIntoMethod(method: any, injectorFn: (...args: any[]) => void): boolean {
   if (method.value && method.value.type === "FunctionExpression" && method.value.body) {
     const body = method.value.body;
     if (body.type === "BlockStatement" && Array.isArray(body.body)) {
-      const consoleLog = createConsoleLogNode(label);
-      body.body.unshift(consoleLog);
+      const injectionNode = createInjectionNode(injectorFn);
+      if (injectionNode) {
+        body.body.unshift(injectionNode);
+        return true;
+      }
     }
   }
+  return false;
 }
 
 // Process and modify source code based on patterns
@@ -130,9 +111,10 @@ function modifySourceWithPatterns(source: string, patterns: LibraryPattern[]): s
             const method = node.body.body.find((member: any) => member.type === "MethodDefinition" && member.key.type === "Identifier" && member.key.name === injection.target);
 
             if (method) {
-              console.log(`[Interceptor] Injecting into ${injection.target}`);
-              injectIntoMethod(method, injection.label);
-              modified = true;
+              console.log(`[Interceptor] Injecting into ${classPattern.name}.${injection.target}`);
+              if (injectIntoMethod(method, injection.expression)) {
+                modified = true;
+              }
             }
           }
         }
@@ -151,9 +133,10 @@ function modifySourceWithPatterns(source: string, patterns: LibraryPattern[]): s
             const method = node.body.body.find((member: any) => member.type === "MethodDefinition" && member.key.type === "Identifier" && member.key.name === injection.target);
 
             if (method) {
-              console.log(`[Interceptor] Injecting into ${injection.target}`);
-              injectIntoMethod(method, injection.label);
-              modified = true;
+              console.log(`[Interceptor] Injecting into ${classPattern.name}.${injection.target}`);
+              if (injectIntoMethod(method, injection.expression)) {
+                modified = true;
+              }
             }
           }
         }
