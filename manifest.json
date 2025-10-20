@@ -6,5 +6,12 @@
   "background": {
     "scripts": ["dist/background.js"]
   },
-  "permissions": ["webRequest", "webRequestBlocking", "<all_urls>"]
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["dist/content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "permissions": ["webRequest", "webRequestBlocking", "tabs", "<all_urls>"]
 }

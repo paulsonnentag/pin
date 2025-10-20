@@ -4,18 +4,20 @@
   "description": "Pin",
   "private": true,
   "scripts": {
-    "build": "vite build",
-    "watch": "vite build --watch",
+    "build": "rollup -c",
+    "watch": "rollup -c -w",
     "clean": "rm -rf dist"
   },
   "devDependencies": {
+    "@rollup/plugin-commonjs": "^28.0.1",
+    "@rollup/plugin-node-resolve": "^15.3.0",
+    "@rollup/plugin-typescript": "^12.1.1",
     "@types/chrome": "^0.0.270",
     "@types/webextension-polyfill": "^0.12.4",
     "rollup": "^4.21.2",
     "rollup-plugin-copy": "^3.5.0",
     "tslib": "^2.7.0",
-    "typescript": "^5.5.4",
-    "vite": "^7.1.9"
+    "typescript": "^5.5.4"
   },
   "dependencies": {
     "acorn": "^8.15.0",
