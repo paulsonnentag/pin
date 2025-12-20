@@ -4,7 +4,7 @@ import { generate } from "astring";
 
 export type MethodMod = {
   name: string; // "constructor" or method name
-  injection: (...args: any[]) => void; // Function to inject
+  injection: (self: any, ...args: any[]) => void; // Function to inject - receives instance as first arg
 };
 
 export type ClassMod = {
@@ -99,21 +99,85 @@ const extractMethodsFromClassBody = (classBody: acorn.ClassBody): Record<string,
 };
 
 // Inject a function call into a method or constructor
-const injectFunctionExprIntoMethod = (method: any, functionExpr: (...args: any[]) => void): boolean => {
-  if (method.value && method.value.type === "FunctionExpression" && method.value.body) {
-    const body = method.value.body;
-    if (body.type === "BlockStatement" && Array.isArray(body.body)) {
-      const injectionNode = functionToCallExpressionNode(functionExpr);
-      if (injectionNode) {
-        body.body.unshift(injectionNode);
-        return true;
-      }
-    }
+const injectFunctionExprIntoMethod = (method: any, functionExpr: (self: any, ...args: any[]) => void): boolean => {
+  if (method.value?.type !== "FunctionExpression" || !method.value?.body) {
+    return false;
   }
-  return false;
+
+  const body = method.value.body;
+  if (body.type !== "BlockStatement" || !Array.isArray(body.body)) {
+    return false;
+  }
+
+  const injectionNode = functionToCallExpressionNode(functionExpr);
+  if (!injectionNode) {
+    return false;
+  }
+
+  const isConstructor = method.kind === "constructor";
+
+  if (isConstructor) {
+    // For constructors, inject after super() calls to ensure `this` is available
+    return injectAfterSuperCalls(body, injectionNode);
+  } else {
+    // For regular methods, inject at the start
+    body.body.unshift(injectionNode);
+    return true;
+  }
 };
 
-const functionToCallExpressionNode = (functionExpr: (...args: any[]) => void): any => {
+// Find all super() calls in a constructor body and inject after each one
+const injectAfterSuperCalls = (constructorBody: any, injectionNode: any): boolean => {
+  type SuperCallLocation = { statement: any; block: any[] };
+  const superCalls: SuperCallLocation[] = [];
+
+  // Walk the AST to find all super() calls
+  walk.ancestor(constructorBody, {
+    CallExpression(node: any, _state: any, ancestors: any[]) {
+      if (node.callee?.type === "Super") {
+        // Walk up ancestors to find the statement that is a direct child of the constructor body
+        // This handles super() in any context: ExpressionStatement, IfStatement condition, etc.
+        for (let i = ancestors.length - 1; i >= 0; i--) {
+          const ancestor = ancestors[i];
+          const parent = ancestors[i - 1];
+
+          // Check if this ancestor is a direct child of constructorBody (the BlockStatement)
+          if (parent === constructorBody && Array.isArray(constructorBody.body)) {
+            superCalls.push({ statement: ancestor, block: constructorBody.body });
+            break;
+          }
+        }
+      }
+    },
+  });
+
+  if (superCalls.length === 0) {
+    // No super() found - might be a base class constructor, inject at start
+    constructorBody.body.unshift(injectionNode);
+    return true;
+  }
+
+  // Deduplicate - multiple super() calls might be in the same statement (e.g., in ternary)
+  const uniqueStatements = new Set(superCalls.map((s) => s.statement));
+  const deduped = Array.from(uniqueStatements).map((stmt) => ({
+    statement: stmt,
+    block: constructorBody.body,
+  }));
+
+  // Insert after each statement containing super() (in reverse order to preserve array indices)
+  for (const { statement, block } of deduped.reverse()) {
+    const idx = block.indexOf(statement);
+    if (idx !== -1) {
+      // Clone the injection node to avoid sharing the same object
+      const clonedNode = JSON.parse(JSON.stringify(injectionNode));
+      block.splice(idx + 1, 0, clonedNode);
+    }
+  }
+
+  return true;
+};
+
+const functionToCallExpressionNode = (functionExpr: (self: any, ...args: any[]) => void): any => {
   // Convert the function to a string and parse it as AST
   const fnString = functionExpr.toString();
 
@@ -132,14 +196,15 @@ const functionToCallExpressionNode = (functionExpr: (...args: any[]) => void): a
     return null;
   }
 
-  // Create a call expression that invokes the function with spread arguments
-  // Result: ((injectorFn)(...arguments))
+  // Create a call expression that invokes the function with `this` as first arg
+  // Result: ((injectorFn)(this, ...arguments))
   return {
     type: "ExpressionStatement",
     expression: {
       type: "CallExpression",
       callee: fnExpression,
       arguments: [
+        { type: "ThisExpression" },
         {
           type: "SpreadElement",
           argument: { type: "Identifier", name: "arguments" },

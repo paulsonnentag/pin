@@ -59,7 +59,7 @@ export const getDocHandle = async (): Promise<DocHandle<PinContextDoc>> => {
 getDocHandle().then((docHandle) => {
   console.log("Automerge document ready:", docHandle.url);
 
-  window.docHandle = docHandle;
+  (window as any).docHandle = docHandle;
 
   // Handle messages from content script
   browser.runtime.onMessage.addListener(async (message: unknown, sender: browser.Runtime.MessageSender) => {

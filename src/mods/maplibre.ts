@@ -1,6 +1,4 @@
-// import { LngLat, MarkerOptions, MapOptions, Map, LngLatLike } from "maplibre-gl";
-
-import { LibraryMod } from "../core/mods";
+import { LibraryMod } from "../mods";
 
 export const MAPLIBRE_MOD: LibraryMod = {
   keyword: "maplibre",
@@ -11,12 +9,14 @@ export const MAPLIBRE_MOD: LibraryMod = {
       methodMods: [
         {
           name: "constructor",
-          injection: function (options: any) {
+          injection: (self: any, options: any) => {
+            self.__PIN_MAP_ID__ = crypto.randomUUID().replace(/-/g, "");
+
             document.dispatchEvent(
               new CustomEvent("pin:message", {
                 detail: {
                   action: "update",
-                  objectId: "map",
+                  objectId: self.__PIN_MAP_ID__,
                   type: "Map",
                   data: { options },
                 },
@@ -32,7 +32,8 @@ export const MAPLIBRE_MOD: LibraryMod = {
       methodMods: [
         {
           name: "constructor",
-          injection: function (options: any) {
+          injection: (self: any, options: any) => {
+            self.__PIN_MARKER_ID__ = crypto.randomUUID().replace(/-/g, "");
             let position = null;
 
             if (options && options.latLng) {
@@ -43,32 +44,18 @@ export const MAPLIBRE_MOD: LibraryMod = {
               new CustomEvent("pin:message", {
                 detail: {
                   action: "update",
-                  objectId: "marker",
+                  objectId: self.__PIN_MARKER_ID__,
                   type: "Marker",
-                  data: { position, options },
+                  data: { position },
                 },
               })
             );
           },
         },
-        {
-          name: "addTo",
-          injection: function (map: any) {
-            document.dispatchEvent(
-              new CustomEvent("pin:message", {
-                detail: {
-                  action: "update",
-                  objectId: (this as any).__PIN_MARKER_ID,
-                  type: "Marker",
-                  data: { addedToMap: true },
-                },
-              })
-            );
-          },
-        },
+
         {
           name: "setLngLat",
-          injection: function (lngLatLike: any) {
+          injection: function (self: any, lngLatLike: any) {
             let lng, lat;
 
             if (Array.isArray(lngLatLike)) {
@@ -83,7 +70,7 @@ export const MAPLIBRE_MOD: LibraryMod = {
               new CustomEvent("pin:message", {
                 detail: {
                   action: "update",
-                  objectId: "marker",
+                  objectId: self.__PIN_MARKER_ID__,
                   type: "Marker",
                   data: { position: { lng, lat } },
                 },

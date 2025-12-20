@@ -2,8 +2,8 @@ import browser from "webextension-polyfill";
 import type { WebRequest } from "webextension-polyfill";
 
 // Main background script that initializes all extension functionality
-import { applyLibraryMods } from "./core/mods";
-import "./core/state";
+import { applyLibraryMods } from "./mods";
+import "./state";
 import { MAPLIBRE_MOD } from "./mods/maplibre";
 
 // Intercept and modify JS responses
