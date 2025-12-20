@@ -39,8 +39,6 @@ export const MAPLIBRE_MOD: LibraryMod = {
               position = { lng: options.latLng.lng, lat: options.latLng.lat };
             }
 
-            console.log("create marker", options);
-
             document.dispatchEvent(
               new CustomEvent("pin:message", {
                 detail: {
