@@ -1,3 +1,4 @@
+import browser from "webextension-polyfill";
 import type { WebRequest } from "webextension-polyfill";
 
 // Main background script that initializes all extension functionality
@@ -5,15 +6,20 @@ import { applyLibraryMods } from "./core/mods";
 import "./core/state";
 import { MAPLIBRE_MOD } from "./mods/maplibre";
 
-// Intercept and modify JS responses (Manifest V3 - filterResponseData doesn't need blocking)
+// Intercept and modify JS responses
 browser.webRequest.onBeforeRequest.addListener(
   (request) => {
     // Check if the request is for a JavaScript file
     if (request.type === "script" || request.url.endsWith(".js")) {
-      transformResponse(request, (source) => applyLibraryMods(source, [MAPLIBRE_MOD]));
+      console.log("[Background] Intercepting request:", request.url);
+      transformResponse(request, (source) => {
+        console.log("[Background] Transforming source for:", request.url);
+        return applyLibraryMods(source, [MAPLIBRE_MOD]);
+      });
     }
   },
-  { urls: ["<all_urls>"] }
+  { urls: ["<all_urls>"] },
+  ["blocking"]
 );
 
 const transformResponse = (request: WebRequest.OnBeforeRequestDetailsType, transform: (response: string) => string) => {
@@ -32,6 +38,7 @@ const transformResponse = (request: WebRequest.OnBeforeRequestDetailsType, trans
     responseData += decoder.decode();
 
     const transformedResponse = transform(responseData);
+
     filter.write(encoder.encode(transformedResponse));
     filter.close();
   };
