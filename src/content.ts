@@ -1,5 +1,3 @@
-import browser from "webextension-polyfill";
-
 // Listen for custom events from the injected code
 document.addEventListener("pin:message", (event: Event) => {
   const customEvent = event as CustomEvent;

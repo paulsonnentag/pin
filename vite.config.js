@@ -5,6 +5,7 @@ import topLevelAwait from "vite-plugin-top-level-await";
 
 export default defineConfig({
   plugins: [wasm(), topLevelAwait()],
+  base: "./",
   build: {
     target: "esnext",
     minify: false,
@@ -12,7 +13,7 @@ export default defineConfig({
     emptyOutDir: false,
     rollupOptions: {
       input: {
-        background: resolve(__dirname, "src/background.ts"),
+        background: resolve(__dirname, "background.html"),
         content: resolve(__dirname, "src/content.ts"),
       },
       output: {
