@@ -1,9 +1,9 @@
 import browser from "webextension-polyfill";
-import { AutomergeUrl, DocHandle, IndexedDBStorageAdapter, Repo } from "@automerge/vanillajs";
+import { AutomergeUrl, DocHandle, IndexedDBStorageAdapter, WebSocketClientAdapter, Repo } from "@automerge/vanillajs";
 
 const repo = new Repo({
   storage: new IndexedDBStorageAdapter(),
-  network: [],
+  network: [new WebSocketClientAdapter("wss://sync3.automerge.org") as any],
 });
 
 // Message types
