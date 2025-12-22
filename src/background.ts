@@ -5,24 +5,26 @@ import type { WebRequest } from "webextension-polyfill";
 import { applyLibraryMods } from "./mods";
 import "./state";
 import { MAPLIBRE_MOD } from "./mods/maplibre";
+import { GOOGLEMAPS_MOD } from "./mods/googlemaps";
 
 // Intercept and modify JS responses
 browser.webRequest.onBeforeRequest.addListener(
   (request) => {
     // Check if the request is for a JavaScript file
     if (request.type === "script" || request.url.endsWith(".js")) {
-      console.log("[Background] Intercepting request:", request.url);
-      transformResponse(request, (source) => {
-        console.log("[Background] Transforming source for:", request.url);
-        return applyLibraryMods(source, [MAPLIBRE_MOD]);
-      });
+      transformResponse(request, (source) =>
+        applyLibraryMods(source, [MAPLIBRE_MOD, GOOGLEMAPS_MOD])
+      );
     }
   },
   { urls: ["<all_urls>"] },
   ["blocking"]
 );
 
-const transformResponse = (request: WebRequest.OnBeforeRequestDetailsType, transform: (response: string) => string) => {
+const transformResponse = (
+  request: WebRequest.OnBeforeRequestDetailsType,
+  transform: (response: string) => string
+) => {
   const filter = browser.webRequest.filterResponseData(request.requestId);
 
   const decoder = new TextDecoder("utf-8");

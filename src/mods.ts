@@ -7,7 +7,9 @@ export type LibraryMod = {
 };
 
 export const applyLibraryMods = (source: string, libraryMods: LibraryMod[]) => {
-  const matchingLibraryMods = libraryMods.filter((mod) => source.includes(mod.keyword));
+  const matchingLibraryMods = libraryMods.filter((mod) =>
+    source.includes(mod.keyword)
+  );
 
   if (matchingLibraryMods.length === 0) {
     return source;

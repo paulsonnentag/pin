@@ -4,7 +4,10 @@ import * as walk from "acorn-walk";
 /**
  * Iterate over all class declarations and expressions in an AST
  */
-export const forEachClass = (ast: acorn.Node, callback: (node: any) => void): void => {
+export const forEachClass = (
+  ast: acorn.Node,
+  callback: (node: any) => void
+): void => {
   walk.simple(ast, {
     ClassDeclaration(node: acorn.Node) {
       callback(node);
@@ -39,7 +42,11 @@ export const getMethodsMap = (classNode: any): Record<string, any> => {
   const bodyElements = classNode.body?.body ?? [];
 
   for (const node of bodyElements) {
-    if (node.type === "MethodDefinition" && node.key && node.key.type === "Identifier") {
+    if (
+      node.type === "MethodDefinition" &&
+      node.key &&
+      node.key.type === "Identifier"
+    ) {
       methodsByName[node.key.name] = node;
     }
   }
@@ -47,9 +54,32 @@ export const getMethodsMap = (classNode: any): Record<string, any> => {
 };
 
 /**
+ * Check if a class contains a specific string literal anywhere in its body
+ */
+export const classContainsString = (
+  classNode: any,
+  searchString: string
+): boolean => {
+  let found = false;
+
+  walk.simple(classNode, {
+    Literal(node: any) {
+      if (typeof node.value === "string" && node.value === searchString) {
+        found = true;
+      }
+    },
+  });
+
+  return found;
+};
+
+/**
  * Inject a function call into a class constructor
  */
-export const injectIntoConstructor = (classNode: any, fn: (self: any, ...args: any[]) => void): boolean => {
+export const injectIntoConstructor = (
+  classNode: any,
+  fn: (self: any, ...args: any[]) => void
+): boolean => {
   const constructor = getMethod(classNode, "constructor");
   if (!constructor) {
     return false;
@@ -60,7 +90,11 @@ export const injectIntoConstructor = (classNode: any, fn: (self: any, ...args: a
 /**
  * Inject a function call into a named method
  */
-export const injectIntoMethod = (classNode: any, methodName: string, fn: (self: any, ...args: any[]) => void): boolean => {
+export const injectIntoMethod = (
+  classNode: any,
+  methodName: string,
+  fn: (self: any, ...args: any[]) => void
+): boolean => {
   const method = getMethod(classNode, methodName);
   if (!method) {
     return false;
@@ -71,7 +105,10 @@ export const injectIntoMethod = (classNode: any, methodName: string, fn: (self: 
 /**
  * Inject a function call into a method node
  */
-const injectFunctionIntoMethod = (method: any, functionExpr: (self: any, ...args: any[]) => void): boolean => {
+const injectFunctionIntoMethod = (
+  method: any,
+  functionExpr: (self: any, ...args: any[]) => void
+): boolean => {
   if (method.value?.type !== "FunctionExpression" || !method.value?.body) {
     return false;
   }
@@ -101,7 +138,10 @@ const injectFunctionIntoMethod = (method: any, functionExpr: (self: any, ...args
 /**
  * Find all super() calls in a constructor body and inject after each one
  */
-const injectAfterSuperCalls = (constructorBody: any, injectionNode: any): boolean => {
+const injectAfterSuperCalls = (
+  constructorBody: any,
+  injectionNode: any
+): boolean => {
   type SuperCallLocation = { statement: any; block: any[] };
   const superCalls: SuperCallLocation[] = [];
 
@@ -116,8 +156,14 @@ const injectAfterSuperCalls = (constructorBody: any, injectionNode: any): boolea
           const parent = ancestors[i - 1];
 
           // Check if this ancestor is a direct child of constructorBody (the BlockStatement)
-          if (parent === constructorBody && Array.isArray(constructorBody.body)) {
-            superCalls.push({ statement: ancestor, block: constructorBody.body });
+          if (
+            parent === constructorBody &&
+            Array.isArray(constructorBody.body)
+          ) {
+            superCalls.push({
+              statement: ancestor,
+              block: constructorBody.body,
+            });
             break;
           }
         }
@@ -155,7 +201,9 @@ const injectAfterSuperCalls = (constructorBody: any, injectionNode: any): boolea
  * Convert a JavaScript function to an AST call expression node
  * that invokes the function with `this` as first arg and spreads `arguments`
  */
-const functionToCallExpressionNode = (functionExpr: (self: any, ...args: any[]) => void): any => {
+const functionToCallExpressionNode = (
+  functionExpr: (self: any, ...args: any[]) => void
+): any => {
   const fnString = functionExpr.toString();
 
   let fnExpression: any;
@@ -186,4 +234,3 @@ const functionToCallExpressionNode = (functionExpr: (self: any, ...args: any[]) 
     },
   };
 };
-
