@@ -1,25 +1,25 @@
+import {
+  classContainsString,
+  forEachClass,
+  hasMethodNames,
+  injectIntoConstructor,
+} from "../ast-helpers";
 import { LibraryMod } from "../mods";
-import { forEachClass, hasMethodNames, injectIntoConstructor } from "../ast-helpers";
 
 export const GOOGLEMAPS_MOD: LibraryMod = {
   keyword: "google.maps",
   mutate: (ast) => {
     forEachClass(ast, (classNode) => {
-      // AdvancedMarkerElement detection: has addListener, setMap, dispose, connectedCallback
-      if (hasMethodNames(classNode, ["addListener", "setMap", "dispose", "connectedCallback"])) {
+      if (isAdvancedMarkerElement(classNode)) {
+        console.log("found advanced marker element");
+
         injectIntoConstructor(classNode, (self: any, options: any) => {
           self.__PIN_MARKER_ID__ = crypto.randomUUID().replace(/-/g, "");
 
-          let position = null;
-          const pos = options?.position;
+          const position = options?.position;
 
-          if (pos) {
-            // Handle both LatLng objects and LatLngLiteral
-            if (typeof pos.lat === "function") {
-              position = { lat: pos.lat(), lng: pos.lng() };
-            } else {
-              position = { lat: pos.lat, lng: pos.lng };
-            }
+          if (!position) {
+            return;
           }
 
           document.dispatchEvent(
@@ -30,7 +30,6 @@ export const GOOGLEMAPS_MOD: LibraryMod = {
                 type: "Marker",
                 data: {
                   position,
-                  mapId: options?.map?.__PIN_MAP_ID__ ?? null,
                 },
               },
             })
@@ -39,4 +38,26 @@ export const GOOGLEMAPS_MOD: LibraryMod = {
       }
     });
   },
+};
+
+/**
+ * Detect AdvancedMarkerElement class using multiple signals:
+ * - Web Component lifecycle methods (connectedCallback, disconnectedCallback)
+ * - Google Maps specific methods (addListener)
+ * - Marker-specific properties (position, map)
+ * - GMP-specific properties unique to AdvancedMarkerElement (gmpDraggable, gmpClickable)
+ * - String literal "AdvancedMarkerElement" in constructor
+ */
+const isAdvancedMarkerElement = (classNode: any): boolean => {
+  // Must have Google Maps event method
+  return (
+    hasMethodNames(classNode, [
+      "connectedCallback",
+      "addListener",
+      "position",
+      "gmpDraggable",
+      "gmpClickable",
+      "collisionBehavior",
+    ]) && classContainsString(classNode, "AdvancedMarkerElement")
+  );
 };
