@@ -3,6 +3,7 @@ import {
   forEachClass,
   hasMethodNames,
   injectIntoConstructor,
+  type InjectionFunction,
 } from "../ast-helpers";
 import { LibraryMod } from "../mods";
 
@@ -11,30 +12,30 @@ export const GOOGLEMAPS_MOD: LibraryMod = {
   mutate: (ast) => {
     forEachClass(ast, (classNode) => {
       if (isAdvancedMarkerElement(classNode)) {
-        console.log("found advanced marker element");
+        console.log("[GoogleMaps] Found AdvancedMarkerElement class");
 
-        injectIntoConstructor(classNode, (self: any, options: any) => {
+        const injection: InjectionFunction = (
+          { tabDocHandle },
+          self,
+          options
+        ) => {
+          // Generate unique marker ID
           self.__PIN_MARKER_ID__ = crypto.randomUUID().replace(/-/g, "");
 
           const position = options?.position;
+          if (!position) return;
 
-          if (!position) {
-            return;
-          }
+          // Update the tab document with marker info
+          tabDocHandle.change((doc: any) => {
+            doc.objects[self.__PIN_MARKER_ID__] = {
+              type: "Marker",
+              data: { position },
+              timestamp: Date.now(),
+            };
+          });
+        };
 
-          document.dispatchEvent(
-            new CustomEvent("pin:message", {
-              detail: {
-                action: "update",
-                objectId: self.__PIN_MARKER_ID__,
-                type: "Marker",
-                data: {
-                  position,
-                },
-              },
-            })
-          );
-        });
+        injectIntoConstructor(classNode, injection);
       }
     });
   },

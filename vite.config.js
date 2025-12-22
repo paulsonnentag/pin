@@ -8,21 +8,21 @@ export default defineConfig({
   base: "./",
   build: {
     target: "esnext",
-    minify: false,
     outDir: "dist",
-    emptyOutDir: false,
     rollupOptions: {
       input: {
         background: resolve(__dirname, "background.html"),
-        content: resolve(__dirname, "src/content.ts"),
+        lib: resolve(__dirname, "src/page/lib.ts"),
       },
       output: {
         format: "es",
         entryFileNames: "[name].js",
-        chunkFileNames: "[name].js",
+        chunkFileNames: "[name]-[hash].js",
         assetFileNames: "[name].[ext]",
       },
-      inlineDynamicImports: true,
+      // Note: inlineDynamicImports removed to allow multiple entry points
+      // Each entry will be a separate bundle
+      preserveEntrySignatures: "exports-only",
     },
   },
   optimizeDeps: {

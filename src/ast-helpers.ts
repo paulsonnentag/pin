@@ -1,6 +1,50 @@
 import * as acorn from "acorn";
 import * as walk from "acorn-walk";
 
+// Extension URL for dynamic imports - set from background.ts
+let extensionLibUrl: string | null = null;
+
+// Current tab's document URL - set before each script transformation
+let currentTabDocUrl: string | null = null;
+
+/**
+ * Set the extension library URL for dynamic imports
+ * Call this from background.ts with browser.runtime.getURL("lib.js")
+ */
+export const setExtensionLibUrl = (url: string): void => {
+  extensionLibUrl = url;
+};
+
+/**
+ * Get the extension URL for dynamic imports
+ */
+export const getExtensionLibUrl = (): string => {
+  if (!extensionLibUrl) {
+    throw new Error(
+      "Extension lib URL not set. Call setExtensionLibUrl first."
+    );
+  }
+  return extensionLibUrl;
+};
+
+/**
+ * Set the current tab's document URL for injection
+ * Call this before each script transformation
+ */
+export const setTabDocUrl = (url: string): void => {
+  currentTabDocUrl = url;
+};
+
+/**
+ * Get the current tab's document URL
+ */
+export const getTabDocUrl = (): string => {
+  if (!currentTabDocUrl) {
+    throw new Error("Tab doc URL not set. Call setTabDocUrl first.");
+  }
+  return currentTabDocUrl;
+};
+
 /**
  * Iterate over all class declarations and expressions in an AST
  */
@@ -78,7 +122,7 @@ export const classContainsString = (
  */
 export const injectIntoConstructor = (
   classNode: any,
-  fn: (self: any, ...args: any[]) => void
+  fn: InjectionFunction
 ): boolean => {
   const constructor = getMethod(classNode, "constructor");
   if (!constructor) {
@@ -93,7 +137,7 @@ export const injectIntoConstructor = (
 export const injectIntoMethod = (
   classNode: any,
   methodName: string,
-  fn: (self: any, ...args: any[]) => void
+  fn: InjectionFunction
 ): boolean => {
   const method = getMethod(classNode, methodName);
   if (!method) {
@@ -107,7 +151,7 @@ export const injectIntoMethod = (
  */
 const injectFunctionIntoMethod = (
   method: any,
-  functionExpr: (self: any, ...args: any[]) => void
+  functionExpr: InjectionFunction
 ): boolean => {
   if (method.value?.type !== "FunctionExpression" || !method.value?.body) {
     return false;
@@ -198,39 +242,60 @@ const injectAfterSuperCalls = (
 };
 
 /**
- * Convert a JavaScript function to an AST call expression node
- * that invokes the function with `this` as first arg and spreads `arguments`
+ * Injection function type - receives API object with doc handles, self (this), and original args
  */
-const functionToCallExpressionNode = (
-  functionExpr: (self: any, ...args: any[]) => void
-): any => {
+export type InjectionFunction = (
+  api: { tabDocHandle: any },
+  self: any,
+  ...args: any[]
+) => void;
+
+/**
+ * Convert a JavaScript function to an AST call expression node
+ * that wraps it in an async IIFE with dynamic import of the Pin API.
+ *
+ * The tab doc URL is inlined into the generated code so the page doesn't need
+ * to look it up at runtime.
+ *
+ * Generated pattern:
+ * ```
+ * import("url").then(__m => (__m.__tla || Promise.resolve()).then(() => __m.getApi("tabDocUrl"))).then(__api => {
+ *   (injectionFn)(__api, this, arg1, arg2, ...);
+ * })
+ * ```
+ */
+const functionToCallExpressionNode = (functionExpr: InjectionFunction): any => {
+  const libUrl = getExtensionLibUrl();
+  const tabDocUrl = getTabDocUrl();
   const fnString = functionExpr.toString();
 
-  let fnExpression: any;
+  // Escape any special characters in the URLs for the string literal
+  const escapedLibUrl = libUrl.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const escapedTabDocUrl = tabDocUrl
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"');
+
+  // Build injection using Promise chain
+  // We capture `this` and `arguments` before the async operation
+  // Wait for __tla (vite's top-level await promise) before calling getApi with the inlined tabDocUrl
+  const injectionCode = `(function(__pinThis, __pinArguments) {
+    import("${escapedLibUrl}").then(function(__pinModule) {
+      return (__pinModule.__tla || Promise.resolve()).then(function() {
+        return __pinModule.getApi("${escapedTabDocUrl}");
+      });
+    }).then(function(__pinApi) {
+      (${fnString}).apply(null, [__pinApi, __pinThis].concat([].slice.call(__pinArguments)));
+    });
+  })(this, arguments)`;
+
   try {
-    const parsed = acorn.parse(`(${fnString})`, {
+    const parsed = acorn.parse(injectionCode, {
       ecmaVersion: "latest",
     }) as any;
-
-    fnExpression = parsed.body[0].expression;
+    return parsed.body[0];
   } catch (error) {
-    console.error("[AST Helpers] Failed to parse injector function:", error);
+    console.error("[AST Helpers] Failed to parse injection code:", error);
+    console.error("[AST Helpers] Injection code was:", injectionCode);
     return null;
   }
-
-  // Create a call expression: ((injectorFn)(this, ...arguments))
-  return {
-    type: "ExpressionStatement",
-    expression: {
-      type: "CallExpression",
-      callee: fnExpression,
-      arguments: [
-        { type: "ThisExpression" },
-        {
-          type: "SpreadElement",
-          argument: { type: "Identifier", name: "arguments" },
-        },
-      ],
-    },
-  };
 };

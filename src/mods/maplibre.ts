@@ -4,6 +4,7 @@ import {
   hasMethodNames,
   injectIntoConstructor,
   injectIntoMethod,
+  type InjectionFunction,
 } from "../ast-helpers";
 
 export const MAPLIBRE_MOD: LibraryMod = {
@@ -19,70 +20,73 @@ export const MAPLIBRE_MOD: LibraryMod = {
           "addLayer",
         ])
       ) {
-        injectIntoConstructor(classNode, (self: any, options: any) => {
+        console.log("[Maplibre] Found Map class");
+        const mapConstructorInjection: InjectionFunction = (
+          { tabDocHandle },
+          self,
+          options
+        ) => {
           self.__PIN_MAP_ID__ = crypto.randomUUID().replace(/-/g, "");
 
-          document.dispatchEvent(
-            new CustomEvent("pin:message", {
-              detail: {
-                action: "update",
-                objectId: self.__PIN_MAP_ID__,
-                type: "Map",
-                data: { options },
-              },
-            })
-          );
-        });
+          tabDocHandle.change((doc: any) => {
+            doc.objects[self.__PIN_MAP_ID__] = {
+              type: "Map",
+              data: { options },
+            };
+          });
+        };
+
+        injectIntoConstructor(classNode, mapConstructorInjection);
       }
 
       // Marker detection: has setLngLat, addTo, remove
       if (hasMethodNames(classNode, ["setLngLat", "addTo", "remove"])) {
-        injectIntoConstructor(classNode, (self: any, options: any) => {
+        const markerConstructorInjection: InjectionFunction = (
+          { tabDocHandle },
+          self,
+          options
+        ) => {
           self.__PIN_MARKER_ID__ = crypto.randomUUID().replace(/-/g, "");
-          let position = null;
 
+          let position = null;
           if (options && options.latLng) {
             position = { lng: options.latLng.lng, lat: options.latLng.lat };
           }
 
-          document.dispatchEvent(
-            new CustomEvent("pin:message", {
-              detail: {
-                action: "update",
-                objectId: self.__PIN_MARKER_ID__,
-                type: "Marker",
-                data: { position },
-              },
-            })
-          );
-        });
+          tabDocHandle.change((doc: any) => {
+            doc.objects[self.__PIN_MARKER_ID__] = {
+              type: "Marker",
+              data: { position },
+            };
+          });
+        };
 
-        injectIntoMethod(
-          classNode,
-          "setLngLat",
-          function (self: any, lngLatLike: any) {
-            let lng, lat;
+        injectIntoConstructor(classNode, markerConstructorInjection);
 
-            if (Array.isArray(lngLatLike)) {
-              lng = lngLatLike[0];
-              lat = lngLatLike[1];
-            } else {
-              lng = lngLatLike.lng;
-              lat = lngLatLike.lat;
-            }
+        const setLngLatInjection: InjectionFunction = (
+          { tabDocHandle },
+          self,
+          lngLatLike
+        ) => {
+          let lng, lat;
 
-            document.dispatchEvent(
-              new CustomEvent("pin:message", {
-                detail: {
-                  action: "update",
-                  objectId: self.__PIN_MARKER_ID__,
-                  type: "Marker",
-                  data: { position: { lng, lat } },
-                },
-              })
-            );
+          if (Array.isArray(lngLatLike)) {
+            lng = lngLatLike[0];
+            lat = lngLatLike[1];
+          } else {
+            lng = lngLatLike.lng;
+            lat = lngLatLike.lat;
           }
-        );
+
+          tabDocHandle.change((doc: any) => {
+            if (doc.objects[self.__PIN_MARKER_ID__]) {
+              doc.objects[self.__PIN_MARKER_ID__].data.position = { lng, lat };
+              doc.objects[self.__PIN_MARKER_ID__].timestamp = Date.now();
+            }
+          });
+        };
+
+        injectIntoMethod(classNode, "setLngLat", setLngLatInjection);
       }
     });
   },
