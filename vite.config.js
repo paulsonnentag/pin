@@ -15,6 +15,7 @@ export default defineConfig({
       input: {
         background: resolve(__dirname, "background.html"),
         content: resolve(__dirname, "src/content.ts"),
+        library: resolve(__dirname, "src/library.ts"),
       },
       output: {
         format: "es",
@@ -22,7 +23,6 @@ export default defineConfig({
         chunkFileNames: "[name].js",
         assetFileNames: "[name].[ext]",
       },
-      inlineDynamicImports: true,
     },
   },
   optimizeDeps: {
