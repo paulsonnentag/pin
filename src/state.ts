@@ -1,5 +1,11 @@
 import browser from "webextension-polyfill";
-import { AutomergeUrl, DocHandle, IndexedDBStorageAdapter, WebSocketClientAdapter, Repo } from "@automerge/vanillajs";
+import {
+  AutomergeUrl,
+  DocHandle,
+  IndexedDBStorageAdapter,
+  WebSocketClientAdapter,
+  Repo,
+} from "@automerge/vanillajs";
 
 const repo = new Repo({
   storage: new IndexedDBStorageAdapter(),
@@ -15,12 +21,15 @@ type ObjectState = {
   timestamp: number;
 };
 
-type PinContextDoc = {
-  tabs: {
-    [tabId: number]: {
-      objects: Record<string, ObjectState>;
-    };
-  };
+// BrowserDoc tracks all tabs and their corresponding document URLs
+type BrowserDoc = {
+  tabs: Record<string, { docUrl: string }>;
+};
+
+// TabDoc stores data for a single tab
+type TabDoc = {
+  pageUrl: string;
+  objects: Record<string, ObjectState>;
 };
 
 interface ObjectMessage {
@@ -30,86 +39,134 @@ interface ObjectMessage {
   data?: any;
 }
 
-let docHandlePromise: Promise<DocHandle<PinContextDoc>> | null = null;
+let browserDocHandlePromise: Promise<DocHandle<BrowserDoc>> | null = null;
+const tabDocHandles: Map<string, DocHandle<TabDoc>> = new Map();
 
-export const getDocHandle = async (): Promise<DocHandle<PinContextDoc>> => {
-  if (docHandlePromise) {
-    return docHandlePromise;
+export const getBrowserDocHandle = async (): Promise<DocHandle<BrowserDoc>> => {
+  if (browserDocHandlePromise) {
+    return browserDocHandlePromise;
   }
 
-  docHandlePromise = (async () => {
-    const docUrl = localStorage.getItem("PIN_CONTEXT_DOC_URL") as AutomergeUrl;
+  browserDocHandlePromise = (async () => {
+    const docUrl = localStorage.getItem("PIN_BROWSER_DOC_URL") as AutomergeUrl;
     if (docUrl) {
-      const handle = await repo.find<PinContextDoc>(docUrl);
+      const handle = await repo.find<BrowserDoc>(docUrl);
       await handle.whenReady();
       return handle;
     } else {
-      const handle = repo.create<PinContextDoc>({
+      const handle = repo.create<BrowserDoc>({
         tabs: {},
       });
-      localStorage.setItem("PIN_CONTEXT_DOC_URL", handle.url);
+      localStorage.setItem("PIN_BROWSER_DOC_URL", handle.url);
       return handle;
     }
   })();
 
-  return docHandlePromise;
+  return browserDocHandlePromise;
+};
+
+export const getTabDocHandle = async (
+  tabId: string,
+  pageUrl?: string
+): Promise<DocHandle<TabDoc>> => {
+  // Check if we already have it cached
+  if (tabDocHandles.has(tabId)) {
+    return tabDocHandles.get(tabId)!;
+  }
+
+  const browserDocHandle = await getBrowserDocHandle();
+  const browserDoc = browserDocHandle.doc();
+
+  // Check if this tab already has a document URL
+  if (browserDoc?.tabs[tabId]?.docUrl) {
+    const handle = await repo.find<TabDoc>(
+      browserDoc.tabs[tabId].docUrl as AutomergeUrl
+    );
+    await handle.whenReady();
+    tabDocHandles.set(tabId, handle);
+    return handle;
+  }
+
+  // Create a new TabDoc for this tab
+  const handle = repo.create<TabDoc>({
+    pageUrl: pageUrl || "",
+    objects: {},
+  });
+
+  // Store the document URL in BrowserDoc
+  browserDocHandle.change((doc: BrowserDoc) => {
+    doc.tabs[tabId] = { docUrl: handle.url };
+  });
+
+  tabDocHandles.set(tabId, handle);
+  return handle;
 };
 
 // Initialize and set up message handlers
-getDocHandle().then((docHandle) => {
-  console.log("Automerge document ready:", docHandle.url);
+getBrowserDocHandle().then((browserDocHandle) => {
+  console.log("Browser document ready:", browserDocHandle.url);
 
-  (window as any).docHandle = docHandle;
+  (window as any).browserDocHandle = browserDocHandle;
 
   // Handle messages from content script
-  browser.runtime.onMessage.addListener(async (message: unknown, sender: browser.Runtime.MessageSender) => {
-    const msg = message as ObjectMessage;
+  browser.runtime.onMessage.addListener(
+    async (message: unknown, sender: browser.Runtime.MessageSender) => {
+      const msg = message as ObjectMessage;
 
-    const tabId = sender.tab?.id;
-    if (!tabId) {
-      console.warn("[Background] Received message from unknown tab");
-      return;
+      const tabUrl = sender.tab?.url;
+      if (!tabUrl) {
+        console.warn("[Background] Received message from unknown tab");
+        return;
+      }
+
+      const tabDocHandle = await getTabDocHandle(tabUrl, sender.tab?.url);
+
+      if (msg.action === "update") {
+        tabDocHandle.change((doc: TabDoc) => {
+          doc.objects[msg.objectId] = {
+            type: msg.type,
+            data: msg.data,
+            timestamp: Date.now(),
+          };
+        });
+        console.log(
+          `[Background] Tab ${tabUrl}: Updated ${msg.type} ${msg.objectId}`,
+          msg.data
+        );
+      } else if (msg.action === "delete") {
+        tabDocHandle.change((doc: TabDoc) => {
+          if (doc.objects[msg.objectId]) {
+            delete doc.objects[msg.objectId];
+          }
+        });
+        console.log(
+          `[Background] Tab ${tabUrl}: Deleted ${msg.type} ${msg.objectId}`
+        );
+      }
+
+      // Log current state for debugging
+      const tabDoc = tabDocHandle.doc();
+      const objectCount = tabDoc ? Object.keys(tabDoc.objects).length : 0;
+      console.log(
+        `[Background] Tab ${tabUrl} now has ${objectCount} tracked objects`
+      );
     }
-
-    if (msg.action === "update") {
-      docHandle.change((doc: PinContextDoc) => {
-        // Ensure tab exists in document
-        if (!doc.tabs[tabId]) {
-          doc.tabs[tabId] = { objects: {} };
-        }
-
-        // Create or update object
-        doc.tabs[tabId].objects[msg.objectId] = {
-          type: msg.type,
-          data: msg.data,
-          timestamp: Date.now(),
-        };
-      });
-      console.log(`[Background] Tab ${tabId}: Updated ${msg.type} ${msg.objectId}`, msg.data);
-    } else if (msg.action === "delete") {
-      docHandle.change((doc: PinContextDoc) => {
-        if (doc.tabs[tabId]?.objects[msg.objectId]) {
-          delete doc.tabs[tabId].objects[msg.objectId];
-        }
-      });
-      console.log(`[Background] Tab ${tabId}: Deleted ${msg.type} ${msg.objectId}`);
-    }
-
-    // Log current state for debugging
-    const doc = docHandle.doc();
-    const objectCount = doc?.tabs[tabId] ? Object.keys(doc.tabs[tabId].objects).length : 0;
-    console.log(`[Background] Tab ${tabId} now has ${objectCount} tracked objects`);
-  });
+  );
 
   // Clean up when tabs are closed
-  browser.tabs.onRemoved.addListener((tabId) => {
-    const doc = docHandle.doc();
-    if (doc?.tabs[tabId]) {
-      const count = Object.keys(doc.tabs[tabId].objects).length;
-      docHandle.change((doc: PinContextDoc) => {
-        delete doc.tabs[tabId];
+  browser.tabs.onRemoved.addListener(async (tabId) => {
+    const tabIdStr = String(tabId);
+
+    // Remove from local cache
+    tabDocHandles.delete(tabIdStr);
+
+    // Remove tab entry from BrowserDoc
+    const browserDoc = browserDocHandle.doc();
+    if (browserDoc?.tabs[tabIdStr]) {
+      browserDocHandle.change((doc: BrowserDoc) => {
+        delete doc.tabs[tabIdStr];
       });
-      console.log(`[Background] Tab ${tabId} closed, removed ${count} tracked objects`);
+      console.log(`[Background] Tab ${tabId} closed, removed from BrowserDoc`);
     }
   });
 });
