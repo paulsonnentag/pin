@@ -1,14 +1,20 @@
 import {
   IndexedDBStorageAdapter,
+  MessageChannelNetworkAdapter,
   Repo,
-  WebSocketClientAdapter,
 } from "@automerge/vanillajs";
+import { PageContextMessagePort } from "./messaging/PageContextMessagePort";
 
+// Create a MessagePort-compatible wrapper for page context communication
+const messagePort = new PageContextMessagePort();
+
+// Create a Repo with the MessageChannelNetworkAdapter
+// No local storage - the background script handles persistence
 const repo = new Repo({
   storage: new IndexedDBStorageAdapter(),
   network: [
     // @ts-ignore
-    new WebSocketClientAdapter("wss://sync3.automerge.org"),
+    new MessageChannelNetworkAdapter(messagePort),
   ],
 });
 

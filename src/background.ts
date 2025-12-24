@@ -8,8 +8,10 @@ import { MAPLIBRE_MOD } from "./mods/maplibre";
 import {
   IndexedDBStorageAdapter,
   WebSocketClientAdapter,
+  MessageChannelNetworkAdapter,
   Repo,
 } from "@automerge/vanillajs";
+import { BackgroundMessagePort } from "./messaging/BackgroundMessagePort";
 
 const repo = new Repo({
   storage: new IndexedDBStorageAdapter(),
@@ -20,6 +22,28 @@ const repo = new Repo({
 });
 
 (window as any).repo = repo;
+
+// Listen for tab connections and dynamically add network adapters
+browser.runtime.onConnect.addListener((port) => {
+  if (port.name !== "automerge-repo") return;
+
+  // Wrap the browser.runtime.Port in our MessagePort-compatible wrapper
+  const messagePort = new BackgroundMessagePort(port);
+
+  // Create a MessageChannelNetworkAdapter with our wrapped port
+  const adapter = new MessageChannelNetworkAdapter(
+    messagePort as unknown as MessagePort
+  );
+
+  // Add the adapter to the repo's network
+  // @ts-ignore - MessageChannelNetworkAdapter type mismatch
+  repo.networkSubsystem.addNetworkAdapter(adapter);
+
+  // Handle disconnection - the adapter will clean itself up via the close event
+  port.onDisconnect.addListener(() => {
+    // The MessageChannelNetworkAdapter handles cleanup internally
+  });
+});
 
 // Intercept and modify JS responses
 browser.webRequest.onBeforeRequest.addListener(

@@ -23,5 +23,9 @@
       "all_frames": true
     }
   ],
-  "web_accessible_resources": ["library.js", "automerge_wasm_bg.wasm"]
+  "web_accessible_resources": [
+    "library.js",
+    "message-relay.js",
+    "automerge_wasm_bg.wasm"
+  ]
 }
