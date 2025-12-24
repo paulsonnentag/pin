@@ -5,6 +5,21 @@ import browser from "webextension-polyfill";
 import { applyLibraryMods } from "./mods";
 import { GOOGLEMAPS_MOD } from "./mods/googlemaps";
 import { MAPLIBRE_MOD } from "./mods/maplibre";
+import {
+  IndexedDBStorageAdapter,
+  WebSocketClientAdapter,
+  Repo,
+} from "@automerge/vanillajs";
+
+const repo = new Repo({
+  storage: new IndexedDBStorageAdapter(),
+  network: [
+    // @ts-ignore
+    new WebSocketClientAdapter("wss://sync3.automerge.org"),
+  ],
+});
+
+(window as any).repo = repo;
 
 // Intercept and modify JS responses
 browser.webRequest.onBeforeRequest.addListener(
