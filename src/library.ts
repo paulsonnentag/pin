@@ -1,2 +1,15 @@
-// This script runs in the page context (not content script isolated world)
-console.log("[Library] Document title:", document.title);
+import {
+  IndexedDBStorageAdapter,
+  Repo,
+  WebSocketClientAdapter,
+} from "@automerge/vanillajs";
+
+const repo = new Repo({
+  storage: new IndexedDBStorageAdapter(),
+  network: [
+    // @ts-ignore
+    new WebSocketClientAdapter("wss://sync3.automerge.org"),
+  ],
+});
+
+(window as any).repo = repo;
