@@ -24,8 +24,8 @@
     }
   ],
   "web_accessible_resources": [
-    "library.js",
-    "message-relay.js",
+    "injected.js",
+    "index.js",
     "automerge_wasm_bg.wasm"
   ]
 }

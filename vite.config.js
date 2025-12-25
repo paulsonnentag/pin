@@ -15,7 +15,7 @@ export default defineConfig({
       input: {
         background: resolve(__dirname, "background.html"),
         content: resolve(__dirname, "src/content.ts"),
-        library: resolve(__dirname, "src/library.ts"),
+        injected: resolve(__dirname, "src/injected.ts"),
       },
       output: {
         format: "es",
