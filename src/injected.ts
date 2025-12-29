@@ -7,6 +7,20 @@ let updatingFromDoc = false;
 let updatingFromPage = false;
 
 /**
+ * Initialize bidirectional sync between page and tab document.
+ */
+async function init() {
+  const handle = await getTabDocHandle();
+
+  initializeDocFromPage(handle);
+  watchTitleChanges(handle);
+  watchUrlChanges(handle);
+  watchDocChanges(handle);
+}
+
+init().catch(console.error);
+
+/**
  * Initialize the doc with current page state if fields are empty.
  */
 function initializeDocFromPage(handle: DocHandle<TabDoc>) {
@@ -14,13 +28,13 @@ function initializeDocFromPage(handle: DocHandle<TabDoc>) {
   if (!doc) return;
 
   if (!doc.title && document.title) {
-    handle.change((d) => {
+    handle.change((d: TabDoc) => {
       d.title = document.title;
     });
   }
 
   if (!doc.pageUrl && location.href) {
-    handle.change((d) => {
+    handle.change((d: TabDoc) => {
       d.pageUrl = location.href;
     });
   }
@@ -38,7 +52,7 @@ function watchTitleChanges(handle: DocHandle<TabDoc>) {
 
     if (currentTitle !== docTitle) {
       updatingFromPage = true;
-      handle.change((d) => {
+      handle.change((d: TabDoc) => {
         d.title = currentTitle;
       });
       updatingFromPage = false;
@@ -67,7 +81,7 @@ function watchUrlChanges(handle: DocHandle<TabDoc>) {
 
     if (currentUrl !== docUrl) {
       updatingFromPage = true;
-      handle.change((d) => {
+      handle.change((d: TabDoc) => {
         d.pageUrl = currentUrl;
       });
       updatingFromPage = false;
@@ -120,17 +134,3 @@ function watchDocChanges(handle: DocHandle<TabDoc>) {
     updatingFromDoc = false;
   });
 }
-
-/**
- * Initialize bidirectional sync between page and tab document.
- */
-async function init() {
-  const handle = await getTabDocHandle();
-
-  initializeDocFromPage(handle);
-  watchTitleChanges(handle);
-  watchUrlChanges(handle);
-  watchDocChanges(handle);
-}
-
-init().catch(console.error);

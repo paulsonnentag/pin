@@ -1,3 +1,4 @@
+import { type API } from "../api";
 import {
   classContainsString,
   forEachClass,
@@ -11,30 +12,37 @@ export const GOOGLEMAPS_MOD: LibraryMod = {
   mutate: (ast) => {
     forEachClass(ast, (classNode) => {
       if (isAdvancedMarkerElement(classNode)) {
-        console.log("found advanced marker element");
+        injectIntoConstructor(
+          classNode,
+          async (api: API, self: any, options: any) => {
+            const markerId = crypto.randomUUID().replace(/-/g, "");
+            self.__PIN_MARKER_ID__ = markerId;
 
-        injectIntoConstructor(classNode, (self: any, options: any) => {
-          self.__PIN_MARKER_ID__ = crypto.randomUUID().replace(/-/g, "");
+            const position = options?.position;
+            if (!position) return;
 
-          const position = options?.position;
+            const lat =
+              typeof position.lat === "function"
+                ? position.lat()
+                : position.lat;
+            const lng =
+              typeof position.lng === "function"
+                ? position.lng()
+                : position.lng;
 
-          if (!position) {
-            return;
+            const handle = await api.getTabDocHandle();
+            handle.change((doc: any) => {
+              if (!doc.objects) doc.objects = {};
+              let marker = doc.objects[markerId];
+              if (!marker) {
+                doc.objects[markerId] = { geolocation: { lat, lng } };
+                marker = doc.objects[markerId];
+              }
+
+              marker.geolocation = { lat, lng };
+            });
           }
-
-          document.dispatchEvent(
-            new CustomEvent("pin:message", {
-              detail: {
-                action: "update",
-                objectId: self.__PIN_MARKER_ID__,
-                type: "Marker",
-                data: {
-                  position,
-                },
-              },
-            })
-          );
-        });
+        );
       }
     });
   },

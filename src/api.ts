@@ -8,6 +8,11 @@ import {
 import { PageContextMessagePort } from "./messaging/PageContextMessagePort";
 import { TabDoc } from "./types";
 
+export type API = {
+  getTabDocHandle: () => Promise<DocHandle<TabDoc>>;
+  repo: Repo;
+};
+
 // Create a MessagePort-compatible wrapper for page context communication
 const messagePort = new PageContextMessagePort();
 

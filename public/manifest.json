@@ -26,6 +26,7 @@
   "web_accessible_resources": [
     "injected.js",
     "index.js",
+    "api.js",
     "automerge_wasm_bg.wasm"
   ]
 }

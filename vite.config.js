@@ -16,6 +16,7 @@ export default defineConfig({
         background: resolve(__dirname, "background.html"),
         content: resolve(__dirname, "src/content.ts"),
         injected: resolve(__dirname, "src/injected.ts"),
+        api: resolve(__dirname, "src/api.ts"),
       },
       output: {
         format: "es",
@@ -23,6 +24,7 @@ export default defineConfig({
         chunkFileNames: "[name].js",
         assetFileNames: "[name].[ext]",
       },
+      preserveEntrySignatures: "exports-only",
     },
   },
   optimizeDeps: {

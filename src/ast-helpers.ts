@@ -1,5 +1,6 @@
 import * as acorn from "acorn";
 import * as walk from "acorn-walk";
+import type { API } from "./api";
 
 /**
  * Iterate over all class declarations and expressions in an AST
@@ -74,11 +75,12 @@ export const classContainsString = (
 };
 
 /**
- * Inject a function call into a class constructor
+ * Inject a function call into a class constructor.
+ * The injected function receives: (api, self, ...constructorArgs)
  */
 export const injectIntoConstructor = (
   classNode: any,
-  fn: (self: any, ...args: any[]) => void
+  fn: (api: API, self: any, ...args: any[]) => void | Promise<void>
 ): boolean => {
   const constructor = getMethod(classNode, "constructor");
   if (!constructor) {
@@ -88,12 +90,13 @@ export const injectIntoConstructor = (
 };
 
 /**
- * Inject a function call into a named method
+ * Inject a function call into a named method.
+ * The injected function receives: (api, self, ...methodArgs)
  */
 export const injectIntoMethod = (
   classNode: any,
   methodName: string,
-  fn: (self: any, ...args: any[]) => void
+  fn: (api: API, self: any, ...args: any[]) => void | Promise<void>
 ): boolean => {
   const method = getMethod(classNode, methodName);
   if (!method) {
@@ -107,7 +110,7 @@ export const injectIntoMethod = (
  */
 const injectFunctionIntoMethod = (
   method: any,
-  functionExpr: (self: any, ...args: any[]) => void
+  functionExpr: (api: API, self: any, ...args: any[]) => void | Promise<void>
 ): boolean => {
   if (method.value?.type !== "FunctionExpression" || !method.value?.body) {
     return false;
@@ -197,40 +200,38 @@ const injectAfterSuperCalls = (
   return true;
 };
 
+// Get the API URL at bundle time (ast-helpers runs in extension context)
+const API_URL = browser.runtime.getURL("api.js");
+
 /**
- * Convert a JavaScript function to an AST call expression node
- * that invokes the function with `this` as first arg and spreads `arguments`
+ * Convert a JavaScript function to an AST node that:
+ * 1. Wraps in an async IIFE
+ * 2. Dynamically imports the api module
+ * 3. Invokes the function with (api, self, ...args)
  */
 const functionToCallExpressionNode = (
-  functionExpr: (self: any, ...args: any[]) => void
+  functionExpr: (api: API, self: any, ...args: any[]) => void | Promise<void>
 ): any => {
   const fnString = functionExpr.toString();
 
-  let fnExpression: any;
+  // Parse the async IIFE wrapper that imports api and calls the injector
+  // The injector function receives: api (imported module with named exports), self (this), and original arguments
+  // We must await __tla (top-level await promise) before the exports are populated
+  const wrapperCode = `(async () => {
+    const api = await import("${API_URL}");
+    await api.__tla;
+    const args = Array.from(arguments);
+    (${fnString})(api, this, ...args);
+  }).call(this)`;
+
   try {
-    const parsed = acorn.parse(`(${fnString})`, {
+    const parsed = acorn.parse(wrapperCode, {
       ecmaVersion: "latest",
     }) as any;
 
-    fnExpression = parsed.body[0].expression;
+    return parsed.body[0];
   } catch (error) {
     console.error("[AST Helpers] Failed to parse injector function:", error);
     return null;
   }
-
-  // Create a call expression: ((injectorFn)(this, ...arguments))
-  return {
-    type: "ExpressionStatement",
-    expression: {
-      type: "CallExpression",
-      callee: fnExpression,
-      arguments: [
-        { type: "ThisExpression" },
-        {
-          type: "SpreadElement",
-          argument: { type: "Identifier", name: "arguments" },
-        },
-      ],
-    },
-  };
 };

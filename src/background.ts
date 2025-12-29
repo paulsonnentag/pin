@@ -46,6 +46,70 @@ const getOrCreateBrowserDocHandle = async () => {
 
 (globalThis as any).browserDocHandle = await getOrCreateBrowserDocHandle();
 
+// Track if we're updating to avoid loops
+let updatingActiveTabFromDoc = false;
+let updatingActiveTabFromBrowser = false;
+
+// Initialize active tab tracking
+const initActiveTabSync = async () => {
+  const browserDocHandle = await getOrCreateBrowserDocHandle();
+
+  // Get current active tab and set it in the doc
+  const [activeTab] = await browser.tabs.query({
+    active: true,
+    currentWindow: true,
+  });
+  if (activeTab?.id !== undefined) {
+    const currentActiveTabId = browserDocHandle.doc()?.activeTabId;
+    if (currentActiveTabId !== activeTab.id) {
+      updatingActiveTabFromBrowser = true;
+      browserDocHandle.change((doc: BrowserDoc) => {
+        doc.activeTabId = activeTab.id;
+      });
+      updatingActiveTabFromBrowser = false;
+    }
+  }
+
+  // Listen for tab activation changes -> update doc
+  browser.tabs.onActivated.addListener(async (activeInfo) => {
+    if (updatingActiveTabFromDoc) return;
+
+    updatingActiveTabFromBrowser = true;
+    browserDocHandle.change((doc: BrowserDoc) => {
+      doc.activeTabId = activeInfo.tabId;
+    });
+    updatingActiveTabFromBrowser = false;
+  });
+
+  // Listen for doc changes -> update active tab
+  browserDocHandle.on("change", async ({ doc }) => {
+    if (updatingActiveTabFromBrowser) return;
+    if (doc.activeTabId === undefined) return;
+
+    // Check if the tab exists before trying to activate it
+    try {
+      const tab = await browser.tabs.get(doc.activeTabId);
+      if (!tab) return;
+
+      // Get current active tab
+      const [currentActive] = await browser.tabs.query({
+        active: true,
+        currentWindow: true,
+      });
+
+      if (currentActive?.id !== doc.activeTabId) {
+        updatingActiveTabFromDoc = true;
+        await browser.tabs.update(doc.activeTabId, { active: true });
+        updatingActiveTabFromDoc = false;
+      }
+    } catch {
+      // Tab doesn't exist, ignore
+    }
+  });
+};
+
+initActiveTabSync();
+
 // Listen for tab connections and dynamically add network adapters
 browser.runtime.onConnect.addListener(async (port) => {
   if (port.name !== "automerge-repo") return;
@@ -90,10 +154,13 @@ browser.runtime.onConnect.addListener(async (port) => {
   // @ts-ignore - MessageChannelNetworkAdapter type mismatch
   repo.networkSubsystem.addNetworkAdapter(adapter);
 
-  // Handle disconnection
+  // Handle disconnection (tab closed or navigated away)
   port.onDisconnect.addListener(() => {
-    // @ts-ignore
-    repo.networkSubsystem.removeNetworkAdapter(adapter);
+    console.log("tab disconnected", tabId);
+
+    // repo.networkSubsystem.removeNetworkAdapter(adapter);
+
+    // Remove from browser doc
     browserDocHandle.change((doc: BrowserDoc) => {
       delete doc.tabs[tabId];
     });

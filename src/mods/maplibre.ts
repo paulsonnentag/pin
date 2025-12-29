@@ -5,63 +5,43 @@ import {
   injectIntoConstructor,
   injectIntoMethod,
 } from "../ast-helpers";
+import { API } from "../api";
 
 export const MAPLIBRE_MOD: LibraryMod = {
   keyword: "maplibre",
   mutate: (ast) => {
     forEachClass(ast, (classNode) => {
-      // Map detection: has addControl, removeControl, addSource, addLayer
-      if (
-        hasMethodNames(classNode, [
-          "addControl",
-          "removeControl",
-          "addSource",
-          "addLayer",
-        ])
-      ) {
-        injectIntoConstructor(classNode, (self: any, options: any) => {
-          self.__PIN_MAP_ID__ = crypto.randomUUID().replace(/-/g, "");
-
-          document.dispatchEvent(
-            new CustomEvent("pin:message", {
-              detail: {
-                action: "update",
-                objectId: self.__PIN_MAP_ID__,
-                type: "Map",
-                data: { options },
-              },
-            })
-          );
-        });
-      }
-
       // Marker detection: has setLngLat, addTo, remove
       if (hasMethodNames(classNode, ["setLngLat", "addTo", "remove"])) {
-        injectIntoConstructor(classNode, (self: any, options: any) => {
-          self.__PIN_MARKER_ID__ = crypto.randomUUID().replace(/-/g, "");
-          let position = null;
+        injectIntoConstructor(
+          classNode,
+          async (api: API, self: any, options: any) => {
+            const markerId = crypto.randomUUID().replace(/-/g, "");
+            self.__PIN_MARKER_ID__ = markerId;
 
-          if (options && options.latLng) {
-            position = { lng: options.latLng.lng, lat: options.latLng.lat };
+            if (!options?.lngLat) return;
+
+            const lng = options.lngLat.lng;
+            const lat = options.lngLat.lat;
+
+            const handle = await api.getTabDocHandle();
+            handle.change((doc: any) => {
+              if (!doc.markers) doc.markers = {};
+              doc.objects[markerId] = {
+                geolocation: { lat, lng },
+              };
+            });
           }
-
-          document.dispatchEvent(
-            new CustomEvent("pin:message", {
-              detail: {
-                action: "update",
-                objectId: self.__PIN_MARKER_ID__,
-                type: "Marker",
-                data: { position },
-              },
-            })
-          );
-        });
+        );
 
         injectIntoMethod(
           classNode,
           "setLngLat",
-          function (self: any, lngLatLike: any) {
-            let lng, lat;
+          async (api: API, self: any, lngLatLike: any) => {
+            const markerId = self.__PIN_MARKER_ID__;
+            if (!markerId) return;
+
+            let lng: number, lat: number;
 
             if (Array.isArray(lngLatLike)) {
               lng = lngLatLike[0];
@@ -71,16 +51,17 @@ export const MAPLIBRE_MOD: LibraryMod = {
               lat = lngLatLike.lat;
             }
 
-            document.dispatchEvent(
-              new CustomEvent("pin:message", {
-                detail: {
-                  action: "update",
-                  objectId: self.__PIN_MARKER_ID__,
-                  type: "Marker",
-                  data: { position: { lng, lat } },
-                },
-              })
-            );
+            const handle = await api.getTabDocHandle();
+            handle.change((doc: any) => {
+              if (!doc.objects) doc.objects = {};
+              let marker = doc.objects[markerId];
+              if (!marker) {
+                doc.objects[markerId] = { geolocation: { lat, lng } };
+                marker = doc.objects[markerId];
+              }
+
+              marker.geolocation = { lat, lng };
+            });
           }
         );
       }
