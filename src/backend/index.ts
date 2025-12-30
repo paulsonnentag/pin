@@ -193,6 +193,11 @@ const handleRpcMessage = async (
   });
 };
 
+// Toggle sidebar when browser action button is clicked
+browser.browserAction.onClicked.addListener(() => {
+  browser.sidebarAction.toggle();
+});
+
 // Intercept and modify JS responses
 browser.webRequest.onBeforeRequest.addListener(
   (request) => {
