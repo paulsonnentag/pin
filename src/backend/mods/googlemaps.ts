@@ -1,4 +1,4 @@
-import { type API } from "../api";
+import { type API } from "../../frontend/api";
 import {
   classContainsString,
   forEachClass,
@@ -12,6 +12,7 @@ export const GOOGLEMAPS_MOD: LibraryMod = {
   mutate: (ast) => {
     forEachClass(ast, (classNode) => {
       if (isAdvancedMarkerElement(classNode)) {
+        console.log("found advanced marker element", classNode);
         injectIntoConstructor(
           classNode,
           async (api: API, self: any, options: any) => {

@@ -5,8 +5,8 @@ import {
   AutomergeUrl,
   DocHandle,
 } from "@automerge/vanillajs";
-import { PageContextMessagePort } from "./messaging/PageContextMessagePort";
-import { TabDoc } from "./types";
+import { PageContextMessagePort } from "./PageContextMessagePort";
+import { TabDoc } from "../types";
 
 export type API = {
   getTabDocHandle: () => Promise<DocHandle<TabDoc>>;

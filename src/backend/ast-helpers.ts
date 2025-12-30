@@ -1,6 +1,6 @@
 import * as acorn from "acorn";
 import * as walk from "acorn-walk";
-import type { API } from "./api";
+import type { API } from "../frontend/api";
 
 /**
  * Iterate over all class declarations and expressions in an AST

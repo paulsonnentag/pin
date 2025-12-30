@@ -1,6 +1,6 @@
 import { getTabDocHandle } from "./api";
 import type { DocHandle } from "@automerge/vanillajs";
-import type { TabDoc } from "./types";
+import type { TabDoc } from "../types";
 
 // Track if we're currently updating to avoid loops
 let updatingFromDoc = false;

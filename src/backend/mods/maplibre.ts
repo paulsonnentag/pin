@@ -5,7 +5,7 @@ import {
   injectIntoConstructor,
   injectIntoMethod,
 } from "../ast-helpers";
-import { API } from "../api";
+import { API } from "../../frontend/api";
 
 export const MAPLIBRE_MOD: LibraryMod = {
   keyword: "maplibre",

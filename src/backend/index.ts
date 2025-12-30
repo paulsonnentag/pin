@@ -13,8 +13,8 @@ import {
   isValidAutomergeUrl,
   DocHandle,
 } from "@automerge/vanillajs";
-import { BackgroundMessagePort } from "./messaging/BackgroundMessagePort";
-import type { BrowserDoc, TabDoc } from "./types";
+import { BackgroundMessagePort } from "./BackgroundMessagePort";
+import type { BrowserDoc, TabDoc } from "../types";
 
 const BROWSER_DOC_URL_KEY = "browserDocUrl";
 
@@ -129,7 +129,7 @@ browser.runtime.onConnect.addListener(async (port) => {
     tabDocHandle = await repo.find<TabDoc>(existingTabDocUrl);
   } else {
     // Create new tab document
-    tabDocHandle = repo.create<TabDoc>({ pageUrl: tabUrl });
+    tabDocHandle = repo.create<TabDoc>({ pageUrl: tabUrl, objects: {} });
 
     // Update browser doc with tab's document URL
     browserDocHandle.change((doc: BrowserDoc) => {
