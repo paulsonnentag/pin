@@ -1,5 +1,5 @@
 import { AutomergeUrl, DocHandle } from "@automerge/vanillajs";
-import { TabDoc } from "../../types";
+import { TabDoc } from "../types";
 import { repo } from "./repo";
 import { rpcCall } from "./rpc";
 
@@ -9,6 +9,7 @@ export type API = {
 };
 
 export { repo } from "./repo";
+export { extractPageText } from "./dom";
 
 /**
  * Get the automerge document URL for the current tab.

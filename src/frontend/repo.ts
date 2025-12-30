@@ -3,7 +3,7 @@ import {
   MessageChannelNetworkAdapter,
   Repo,
 } from "@automerge/vanillajs";
-import { PageContextMessagePort } from "../PageContextMessagePort";
+import { PageContextMessagePort } from "./PageContextMessagePort";
 
 // Create a MessagePort-compatible wrapper for page context communication
 const messagePort = new PageContextMessagePort();
@@ -16,4 +16,3 @@ export const repo = new Repo({
     new MessageChannelNetworkAdapter(messagePort),
   ],
 });
-
