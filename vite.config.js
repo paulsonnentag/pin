@@ -17,6 +17,7 @@ export default defineConfig({
         content: resolve(__dirname, "src/frontend/content.ts"),
         injected: resolve(__dirname, "src/frontend/injected.ts"),
         api: resolve(__dirname, "src/frontend/api.ts"),
+        test: resolve(__dirname, "test.html"),
       },
       output: {
         format: "es",
