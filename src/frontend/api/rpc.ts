@@ -1,30 +1,3 @@
-import {
-  IndexedDBStorageAdapter,
-  MessageChannelNetworkAdapter,
-  Repo,
-  AutomergeUrl,
-  DocHandle,
-} from "@automerge/vanillajs";
-import { PageContextMessagePort } from "./PageContextMessagePort";
-import { TabDoc } from "../types";
-
-export type API = {
-  getTabDocHandle: () => Promise<DocHandle<TabDoc>>;
-  repo: Repo;
-};
-
-// Create a MessagePort-compatible wrapper for page context communication
-const messagePort = new PageContextMessagePort();
-
-// Create a Repo with the MessageChannelNetworkAdapter
-export const repo = new Repo({
-  storage: new IndexedDBStorageAdapter(),
-  network: [
-    // @ts-ignore
-    new MessageChannelNetworkAdapter(messagePort),
-  ],
-});
-
 // RPC call tracking
 const pendingRpcCalls = new Map<
   string,
@@ -46,7 +19,7 @@ window.addEventListener("message", (event) => {
 });
 
 // Send RPC call to background
-function rpcCall(method: string): Promise<unknown> {
+export function rpcCall(method: string): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const id = crypto.randomUUID();
     pendingRpcCalls.set(id, { resolve, reject });
@@ -70,11 +43,3 @@ function rpcCall(method: string): Promise<unknown> {
   });
 }
 
-/**
- * Get the automerge document URL for the current tab.
- */
-export async function getTabDocHandle(): Promise<DocHandle<TabDoc>> {
-  const docUrl = (await rpcCall("getTabUrl")) as AutomergeUrl;
-
-  return await repo.find<TabDoc>(docUrl);
-}
