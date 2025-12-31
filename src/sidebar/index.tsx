@@ -1,33 +1,27 @@
 import { render } from "solid-js/web";
-import type { DocHandle, AutomergeUrl } from "@automerge/automerge-repo";
+import type { AutomergeUrl } from "@automerge/automerge-repo";
 import browser from "webextension-polyfill";
 import { Sidebar } from "./Sidebar";
 import type { SidebarDoc } from "./types";
+import { repo } from "./repo";
 import "./index.css";
-
-import { Repo } from "@automerge/automerge-repo";
-import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb";
-
-export const repo = new Repo({
-  storage: new IndexedDBStorageAdapter("sidebar-repo"),
-});
 
 // Key for storing the document URL
 const DOC_URL_KEY = "sidebar-doc-url";
 
-async function getOrCreateDocHandle(): Promise<DocHandle<SidebarDoc>> {
+async function getOrCreateDocUrl(): Promise<AutomergeUrl> {
   const stored = await browser.storage.local.get(DOC_URL_KEY);
   const url = stored[DOC_URL_KEY] as AutomergeUrl | undefined;
 
   if (url) {
-    return repo.find<SidebarDoc>(url);
+    return url;
   }
 
   const handle = repo.create<SidebarDoc>({ matches: [] });
   await browser.storage.local.set({ [DOC_URL_KEY]: handle.url });
-  return handle;
+  return handle.url;
 }
 
 // Initialize and render
-const handle = await getOrCreateDocHandle();
-render(() => <Sidebar handle={handle} />, document.body);
+const docUrl = await getOrCreateDocUrl();
+render(() => <Sidebar docUrl={docUrl} />, document.body);
