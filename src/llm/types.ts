@@ -19,5 +19,3 @@ export type CodeBlock = {
 };
 
 export type Block = TextBlock | CodeBlock;
-
-

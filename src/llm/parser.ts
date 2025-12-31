@@ -130,5 +130,3 @@ function findPartialFence(text: string): number {
   if (text.endsWith("`")) return text.length - 1;
   return -1;
 }
-
-

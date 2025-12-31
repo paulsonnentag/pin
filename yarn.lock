@@ -37,12 +37,24 @@
     isomorphic-ws "^5.0.0"
     ws "^8.7.0"
 
+"@automerge/automerge-repo-solid-primitives@^2.5.1":
+  version "2.5.1"
+  resolved "https://registry.yarnpkg.com/@automerge/automerge-repo-solid-primitives/-/automerge-repo-solid-primitives-2.5.1.tgz#fc5b6c7ffc01873198922413c20e5a8c009ef81e"
+  integrity sha512-60J/GDqZb7wSf1H1cZ7LvEP6YGBEOtUYYjSp7cvJw41k/VxU4n6n/qSgI53Fs0rJOH6C22Kmi5hoxMve43lGLw==
+
 "@automerge/automerge-repo-storage-indexeddb@2.4.0":
   version "2.4.0"
   resolved "https://registry.yarnpkg.com/@automerge/automerge-repo-storage-indexeddb/-/automerge-repo-storage-indexeddb-2.4.0.tgz#b1caea6d583075b3f743dc77c9181cec2660e96d"
   integrity sha512-oZlcr0Cp091aKr01F5YMPLhxpUxNfTEL6q/Ywjf7wMruSCWApA6Lt/S/jbU4bXIyvwjLUPQ6Ok7dzk1dr6Sdsg==
   dependencies:
     "@automerge/automerge-repo" "2.4.0"
+
+"@automerge/automerge-repo-storage-indexeddb@^2.5.1":
+  version "2.5.1"
+  resolved "https://registry.yarnpkg.com/@automerge/automerge-repo-storage-indexeddb/-/automerge-repo-storage-indexeddb-2.5.1.tgz#76e648788b14b894357d9bcb025d42da0889a183"
+  integrity sha512-klyemjiwEn2+PW+NTjvBtjmykjJVoaBbQgk5P02jIgvAO7KH8OACldFzPrJdO0o6WAxkiOdtte8RHFKrDPkBlw==
+  dependencies:
+    "@automerge/automerge-repo" "2.5.1"
 
 "@automerge/automerge-repo@2.4.0":
   version "2.4.0"
@@ -58,10 +70,29 @@
     uuid "^9.0.0"
     xstate "^5.9.1"
 
+"@automerge/automerge-repo@2.5.1", "@automerge/automerge-repo@^2.5.1":
+  version "2.5.1"
+  resolved "https://registry.yarnpkg.com/@automerge/automerge-repo/-/automerge-repo-2.5.1.tgz#f124b426706be53e34b41f639b17989fe269d84b"
+  integrity sha512-w242TXb2TaGHFux7dDtJIUVJMqSSq1iYvNia8FVYgVTUDvbm8chaGMe1kVdKMEINFiB/BNYPtsoJIPjJhQArLg==
+  dependencies:
+    "@automerge/automerge" "2.2.8 - 3"
+    bs58check "^3.0.1"
+    cbor-x "^1.3.0"
+    debug "^4.3.4"
+    eventemitter3 "^5.0.1"
+    fast-sha256 "^1.3.0"
+    uuid "^9.0.0"
+    xstate "^5.9.1"
+
 "@automerge/automerge@2.2.8 - 3":
   version "3.2.0"
   resolved "https://registry.yarnpkg.com/@automerge/automerge/-/automerge-3.2.0.tgz#8dc35726e6f59fc7c46435d1ea2c1c9f6a112f88"
   integrity sha512-ANav4cdVYn7TrpeN28fAu9vpWxu8GWwpMJM2JjtfxFULTQnbFCK4y0Wmdk3zaiNgvYSGK0pkbYfCOrxVpXic8w==
+
+"@automerge/automerge@^3.2.1":
+  version "3.2.1"
+  resolved "https://registry.yarnpkg.com/@automerge/automerge/-/automerge-3.2.1.tgz#3fc2c93c61303d6f99900dcadf4ab23be93af436"
+  integrity sha512-xsEZlZe8lWyVCbD7Z7roH4X6ZKlRxMmmumb0M5CuxJWptUEfYsf+1z9lFEJh4aDBbWTLAgxsXd+TBi6jKTj0+g==
 
 "@automerge/vanillajs@^2.4.0":
   version "2.4.0"
