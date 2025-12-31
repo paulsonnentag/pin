@@ -2,11 +2,11 @@
 import { createSignal, For, Show } from "solid-js";
 import { useDocument } from "@automerge/automerge-repo-solid-primitives";
 import type { AutomergeUrl } from "@automerge/automerge-repo";
-import browser from "webextension-polyfill";
 import { repo } from "./repo";
 import type { SidebarDoc, Match } from "./types";
 import { AnthropicProvider } from "../llm/anthropic";
 import { parseBlocks } from "../llm/parser";
+import { evaluateOnPage } from "./evaluateOnPage";
 
 const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
 
@@ -33,7 +33,8 @@ export function Sidebar(props: { docUrl: AutomergeUrl }) {
     });
 
     try {
-      const pageText = await getPageText();
+      // Use evaluateOnPage to get the page text
+      const pageText = await evaluateOnPage((api) => api.extractPageText());
       const provider = new AnthropicProvider(apiKey);
 
       const prompt = `You are analyzing a webpage to find items matching a user's search query.
@@ -128,16 +129,5 @@ Only output the JSON code blocks, no other text.`;
         </div>
       </Show>
     </div>
-  );
-}
-
-async function getPageText(): Promise<string> {
-  const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-  if (!tab.id) throw new Error("No active tab");
-
-  return browser.tabs.sendMessage(
-    tab.id,
-    { type: "extractPageText" },
-    { frameId: 0 }
   );
 }

@@ -4,4 +4,3 @@ import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-index
 export const repo = new Repo({
   storage: new IndexedDBStorageAdapter("sidebar-repo"),
 });
-

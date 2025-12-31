@@ -9,6 +9,8 @@ export type API = {
 };
 
 export { repo } from "./repo";
+export { extractPageText } from "./dom";
+export { evaluateOnPage } from "../sidebar/evaluateOnPage";
 
 /**
  * Get the automerge document URL for the current tab.
