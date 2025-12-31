@@ -2,9 +2,11 @@ import { defineConfig } from "vite";
 import { resolve } from "path";
 import wasm from "vite-plugin-wasm";
 import topLevelAwait from "vite-plugin-top-level-await";
+import solid from "vite-plugin-solid";
+import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
-  plugins: [wasm(), topLevelAwait()],
+  plugins: [solid(), wasm(), topLevelAwait(), tailwindcss()],
   base: "./",
   build: {
     target: "esnext",

@@ -9,7 +9,6 @@ export type API = {
 };
 
 export { repo } from "./repo";
-export { extractPageText } from "./dom";
 
 /**
  * Get the automerge document URL for the current tab.
