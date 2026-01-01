@@ -19,3 +19,9 @@ export type CodeBlock = {
 };
 
 export type Block = TextBlock | CodeBlock;
+
+export type BlockEvent = {
+  type: "create" | "update" | "complete";
+  blockId: string;
+  block: Block;
+};

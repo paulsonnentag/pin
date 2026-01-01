@@ -1,7 +1,13 @@
-// A match extracted from the page
-export type Match = Record<string, unknown>;
+import type { Block } from "../llm/types";
 
-// Document type for sidebar state
+// A chat message with structured block content
+export type ChatMessage = {
+  id: string;
+  role: "user" | "assistant";
+  blocks: Block[];
+};
+
+// Document type for sidebar chat state
 export type SidebarDoc = {
-  matches: Match[];
+  messages: ChatMessage[];
 };

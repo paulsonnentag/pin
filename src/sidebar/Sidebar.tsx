@@ -1,133 +1,220 @@
 /// <reference types="vite/client" />
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, For, Show, onMount, createEffect } from "solid-js";
 import { useDocument } from "@automerge/automerge-repo-solid-primitives";
 import type { AutomergeUrl } from "@automerge/automerge-repo";
 import { repo } from "./repo";
-import type { SidebarDoc, Match } from "./types";
+import type { SidebarDoc, ChatMessage } from "./types";
+import type { Block, Message } from "../llm/types";
 import { AnthropicProvider } from "../llm/anthropic";
 import { parseBlocks } from "../llm/parser";
-import { evaluateOnPage } from "./evaluateOnPage";
 
-const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
+const API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY;
 
 export function Sidebar(props: { docUrl: AutomergeUrl }) {
   const [doc, handle] = useDocument<SidebarDoc>(() => props.docUrl, { repo });
 
-  const [query, setQuery] = createSignal("");
+  const [input, setInput] = createSignal("");
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
 
-  const handleSearch = async () => {
-    const searchQuery = query().trim();
-    if (!searchQuery) return;
+  let messagesEndRef: HTMLDivElement | undefined;
+
+  // Scroll to bottom when messages change
+  createEffect(() => {
+    const messages = doc()?.messages;
+    if (messages && messagesEndRef) {
+      messagesEndRef.scrollIntoView({ behavior: "smooth" });
+    }
+  });
+
+  const handleSend = async () => {
+    const text = input().trim();
+    if (!text) return;
 
     const h = handle();
     if (!h) return;
 
+    setInput("");
     setLoading(true);
     setError(null);
 
-    // Clear existing matches
+    // Create user message
+    const userMessageId = crypto.randomUUID();
     h.change((d: SidebarDoc) => {
-      d.matches = [];
+      if (!d.messages) d.messages = [];
+      d.messages.push({
+        id: userMessageId,
+        role: "user",
+        blocks: [{ type: "text", content: text }],
+      });
+    });
+
+    // Create assistant message placeholder
+    const assistantMessageId = crypto.randomUUID();
+    h.change((d: SidebarDoc) => {
+      d.messages.push({
+        id: assistantMessageId,
+        role: "assistant",
+        blocks: [],
+      });
     });
 
     try {
-      // Use evaluateOnPage to get the page text
-      const pageText = await evaluateOnPage((api) => api.extractPageText());
-      const provider = new AnthropicProvider(apiKey);
+      const provider = new AnthropicProvider(API_KEY);
 
-      const prompt = `You are analyzing a webpage to find items matching a user's search query.
+      // Get full message history and send to LLM
+      const currentDoc = h.doc();
+      if (!currentDoc) throw new Error("Document not available");
 
-User is searching for: "${searchQuery}"
+      // Exclude the empty assistant message we just added
+      const historyForApi = currentDoc.messages.slice(0, -1);
+      const apiMessages = toApiMessages(historyForApi);
 
-Here is the text content of the webpage:
----
-${pageText.slice(0, 50000)}
----
+      const stream = provider.stream(apiMessages);
 
-Find all items on this page that match the search query "${searchQuery}". 
-For each match, output a JSON code block with the extracted information.
+      // Track blocks by ID for updates
+      const blockIdToIndex = new Map<string, number>();
 
-Each code block should be valid JSON with relevant fields extracted from the page.
-For example, if searching for "flights", each match might have fields like:
-- airline, departure, arrival, price, duration, etc.
+      for await (const event of parseBlocks(stream)) {
+        h.change((d: SidebarDoc) => {
+          const assistantMsg = d.messages.find(
+            (m) => m.id === assistantMessageId
+          );
+          if (!assistantMsg) return;
 
-Output each match as a separate \`\`\`json code block.
-Only output the JSON code blocks, no other text.`;
-
-      const messages = [{ role: "user" as const, content: prompt }];
-      const stream = provider.stream(messages);
-
-      for await (const block of parseBlocks(stream)) {
-        if (block.type === "code" && block.language === "json") {
-          try {
-            const match = JSON.parse(block.content) as Match;
-            h.change((d: SidebarDoc) => {
-              d.matches.push(match);
-            });
-          } catch (e) {
-            console.warn("Failed to parse JSON block:", block.content);
+          if (event.type === "create") {
+            // Add new block
+            assistantMsg.blocks.push({ ...event.block });
+            blockIdToIndex.set(event.blockId, assistantMsg.blocks.length - 1);
+          } else if (event.type === "update") {
+            // Update existing block
+            const idx = blockIdToIndex.get(event.blockId);
+            if (idx !== undefined) {
+              assistantMsg.blocks[idx] = { ...event.block };
+            }
           }
-        }
+          // "complete" doesn't need special handling - block is already updated
+        });
       }
     } catch (err) {
       setError(String(err));
+      // Remove the empty assistant message on error
+      h.change((d: SidebarDoc) => {
+        const idx = d.messages.findIndex((m) => m.id === assistantMessageId);
+        if (idx !== -1 && d.messages[idx].blocks.length === 0) {
+          d.messages.splice(idx, 1);
+        }
+      });
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div class="p-4 font-sans">
-      <div class="flex gap-2 mb-4">
-        <input
-          type="text"
-          value={query()}
-          onInput={(e) => setQuery(e.currentTarget.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-          placeholder="Search for... (e.g., flights, hotels)"
-          class="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-          disabled={loading()}
-        />
-        <button
-          onClick={handleSearch}
-          disabled={loading() || !query().trim()}
-          class="px-4 py-2 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-        >
-          {loading() ? "Searching..." : "Search"}
-        </button>
+    <div class="flex flex-col h-screen font-sans bg-gray-50">
+      {/* Messages area */}
+      <div class="flex-1 overflow-y-auto p-4 space-y-4">
+        <For each={doc()?.messages}>
+          {(message) => (
+            <div
+              class={`flex ${
+                message.role === "user" ? "justify-end" : "justify-start"
+              }`}
+            >
+              <div
+                class={`max-w-[80%] rounded-lg p-3 ${
+                  message.role === "user"
+                    ? "bg-blue-500 text-white"
+                    : "bg-white border border-gray-200"
+                }`}
+              >
+                <For each={message.blocks}>
+                  {(block) => (
+                    <Show
+                      when={block.type === "text"}
+                      fallback={
+                        <pre
+                          class={`text-xs p-2 rounded mt-2 overflow-x-auto ${
+                            message.role === "user"
+                              ? "bg-blue-600"
+                              : "bg-gray-100"
+                          }`}
+                        >
+                          <code>
+                            {(block as Block & { type: "code" }).content}
+                          </code>
+                        </pre>
+                      }
+                    >
+                      <p class="text-sm whitespace-pre-wrap">
+                        {(block as Block & { type: "text" }).content}
+                      </p>
+                    </Show>
+                  )}
+                </For>
+                <Show when={message.blocks.length === 0 && loading()}>
+                  <div class="flex items-center gap-2 text-sm text-gray-400">
+                    <div class="w-3 h-3 border-2 border-gray-300 border-t-transparent rounded-full animate-spin" />
+                    Thinking...
+                  </div>
+                </Show>
+              </div>
+            </div>
+          )}
+        </For>
+        <div ref={messagesEndRef} />
       </div>
 
+      {/* Error display */}
       <Show when={error()}>
-        <div class="p-3 mb-4 text-sm text-red-700 bg-red-100 rounded">
+        <div class="mx-4 p-3 text-sm text-red-700 bg-red-100 rounded">
           {error()}
         </div>
       </Show>
 
-      <Show when={loading()}>
-        <div class="flex items-center gap-2 text-sm text-gray-600 mb-4">
-          <div class="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          Analyzing page...
+      {/* Input area */}
+      <div class="border-t border-gray-200 bg-white p-4">
+        <div class="flex gap-2">
+          <input
+            type="text"
+            value={input()}
+            onInput={(e) => setInput(e.currentTarget.value)}
+            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
+            placeholder="Type a message..."
+            class="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            disabled={loading()}
+          />
+          <button
+            onClick={handleSend}
+            disabled={loading() || !input().trim()}
+            class="px-4 py-2 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+          >
+            Send
+          </button>
         </div>
-      </Show>
-
-      <Show when={doc()?.matches.length}>
-        <div class="space-y-3">
-          <h2 class="text-sm font-semibold text-gray-700">
-            Found {doc()?.matches.length} matches
-          </h2>
-          <For each={doc()?.matches}>
-            {(match) => (
-              <div class="p-3 bg-gray-50 rounded border border-gray-200">
-                <pre class="text-xs whitespace-pre-wrap break-words">
-                  {JSON.stringify(match, null, 2)}
-                </pre>
-              </div>
-            )}
-          </For>
-        </div>
-      </Show>
+      </div>
     </div>
   );
+}
+
+// Convert chat messages to LLM message format
+function toApiMessages(messages: ChatMessage[]): Message[] {
+  return messages.map((msg) => ({
+    role: msg.role,
+    content: blocksToString(msg.blocks),
+  }));
+}
+
+// Serialize blocks to string for LLM API
+function blocksToString(blocks: Block[]): string {
+  return blocks
+    .map((block) => {
+      if (block.type === "text") {
+        return block.content;
+      } else {
+        const lang = block.language || "";
+        return `\`\`\`${lang}\n${block.content}\n\`\`\``;
+      }
+    })
+    .join("\n");
 }
