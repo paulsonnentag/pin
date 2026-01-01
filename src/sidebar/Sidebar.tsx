@@ -2,10 +2,9 @@
 import { createSignal, For, Show, createEffect } from "solid-js";
 import { makeDocumentProjection } from "@automerge/automerge-repo-solid-primitives";
 import type { DocHandle } from "@automerge/automerge-repo";
-import type { SidebarDoc, ChatMessage } from "./types";
-import type { Block, Message } from "../llm/types";
-import { AnthropicProvider } from "../llm/anthropic";
-import { parseBlocks } from "../llm/parser";
+import type { SidebarDoc } from "./types";
+import type { Block } from "../llm/types";
+import { Agent } from "./Agent";
 
 const API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY;
 
@@ -15,9 +14,9 @@ type SidebarProps = {
 
 export function Sidebar({ handle }: SidebarProps) {
   const doc = makeDocumentProjection(handle);
+  const agent = new Agent(handle, API_KEY);
 
   const [input, setInput] = createSignal("");
-  const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
 
   let messagesEndRef: HTMLDivElement | undefined;
@@ -33,79 +32,25 @@ export function Sidebar({ handle }: SidebarProps) {
   const handleSend = async () => {
     const text = input().trim();
     if (!text) return;
+
     setInput("");
-    setLoading(true);
     setError(null);
 
-    // Create user message
-    const userMessageId = crypto.randomUUID();
-    h.change((d: SidebarDoc) => {
+    // Add user message to doc
+    handle.change((d: SidebarDoc) => {
       if (!d.messages) d.messages = [];
       d.messages.push({
-        id: userMessageId,
+        id: crypto.randomUUID(),
         role: "user",
         blocks: [{ type: "text", content: text }],
       });
     });
 
-    // Create assistant message placeholder
-    const assistantMessageId = crypto.randomUUID();
-    h.change((d: SidebarDoc) => {
-      d.messages.push({
-        id: assistantMessageId,
-        role: "assistant",
-        blocks: [],
-      });
-    });
-
+    // Run agent step to generate response
     try {
-      const provider = new AnthropicProvider(API_KEY);
-
-      // Get full message history and send to LLM
-      const currentDoc = h.doc();
-      if (!currentDoc) throw new Error("Document not available");
-
-      // Exclude the empty assistant message we just added
-      const historyForApi = currentDoc.messages.slice(0, -1);
-      const apiMessages = toApiMessages(historyForApi);
-
-      const stream = provider.stream(apiMessages);
-
-      // Track blocks by ID for updates
-      const blockIdToIndex = new Map<string, number>();
-
-      for await (const event of parseBlocks(stream)) {
-        h.change((d: SidebarDoc) => {
-          const assistantMsg = d.messages.find(
-            (m) => m.id === assistantMessageId
-          );
-          if (!assistantMsg) return;
-
-          if (event.type === "create") {
-            // Add new block
-            assistantMsg.blocks.push({ ...event.block });
-            blockIdToIndex.set(event.blockId, assistantMsg.blocks.length - 1);
-          } else if (event.type === "update") {
-            // Update existing block
-            const idx = blockIdToIndex.get(event.blockId);
-            if (idx !== undefined) {
-              assistantMsg.blocks[idx] = { ...event.block };
-            }
-          }
-          // "complete" doesn't need special handling - block is already updated
-        });
-      }
+      await agent.step();
     } catch (err) {
       setError(String(err));
-      // Remove the empty assistant message on error
-      h.change((d: SidebarDoc) => {
-        const idx = d.messages.findIndex((m) => m.id === assistantMessageId);
-        if (idx !== -1 && d.messages[idx].blocks.length === 0) {
-          d.messages.splice(idx, 1);
-        }
-      });
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -151,7 +96,7 @@ export function Sidebar({ handle }: SidebarProps) {
                     </Show>
                   )}
                 </For>
-                <Show when={message.blocks.length === 0 && loading()}>
+                <Show when={message.blocks.length === 0 && agent.inProgress()}>
                   <div class="flex items-center gap-2 text-sm text-gray-400">
                     <div class="w-3 h-3 border-2 border-gray-300 border-t-transparent rounded-full animate-spin" />
                     Thinking...
@@ -181,11 +126,11 @@ export function Sidebar({ handle }: SidebarProps) {
             onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
             placeholder="Type a message..."
             class="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            disabled={loading()}
+            disabled={agent.inProgress()}
           />
           <button
             onClick={handleSend}
-            disabled={loading() || !input().trim()}
+            disabled={agent.inProgress() || !input().trim()}
             class="px-4 py-2 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             Send
@@ -194,26 +139,4 @@ export function Sidebar({ handle }: SidebarProps) {
       </div>
     </div>
   );
-}
-
-// Convert chat messages to LLM message format
-function toApiMessages(messages: ChatMessage[]): Message[] {
-  return messages.map((msg) => ({
-    role: msg.role,
-    content: blocksToString(msg.blocks),
-  }));
-}
-
-// Serialize blocks to string for LLM API
-function blocksToString(blocks: Block[]): string {
-  return blocks
-    .map((block) => {
-      if (block.type === "text") {
-        return block.content;
-      } else {
-        const lang = block.language || "";
-        return `\`\`\`${lang}\n${block.content}\n\`\`\``;
-      }
-    })
-    .join("\n");
 }
