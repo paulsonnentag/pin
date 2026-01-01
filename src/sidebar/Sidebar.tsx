@@ -1,8 +1,7 @@
 /// <reference types="vite/client" />
-import { createSignal, For, Show, onMount, createEffect } from "solid-js";
-import { useDocument } from "@automerge/automerge-repo-solid-primitives";
-import type { AutomergeUrl } from "@automerge/automerge-repo";
-import { repo } from "./repo";
+import { createSignal, For, Show, createEffect } from "solid-js";
+import { makeDocumentProjection } from "@automerge/automerge-repo-solid-primitives";
+import type { DocHandle } from "@automerge/automerge-repo";
 import type { SidebarDoc, ChatMessage } from "./types";
 import type { Block, Message } from "../llm/types";
 import { AnthropicProvider } from "../llm/anthropic";
@@ -10,8 +9,12 @@ import { parseBlocks } from "../llm/parser";
 
 const API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY;
 
-export function Sidebar(props: { docUrl: AutomergeUrl }) {
-  const [doc, handle] = useDocument<SidebarDoc>(() => props.docUrl, { repo });
+type SidebarProps = {
+  handle: DocHandle<SidebarDoc>;
+};
+
+export function Sidebar({ handle }: SidebarProps) {
+  const doc = makeDocumentProjection(handle);
 
   const [input, setInput] = createSignal("");
   const [loading, setLoading] = createSignal(false);
@@ -21,7 +24,7 @@ export function Sidebar(props: { docUrl: AutomergeUrl }) {
 
   // Scroll to bottom when messages change
   createEffect(() => {
-    const messages = doc()?.messages;
+    const messages = doc.messages;
     if (messages && messagesEndRef) {
       messagesEndRef.scrollIntoView({ behavior: "smooth" });
     }
@@ -30,10 +33,6 @@ export function Sidebar(props: { docUrl: AutomergeUrl }) {
   const handleSend = async () => {
     const text = input().trim();
     if (!text) return;
-
-    const h = handle();
-    if (!h) return;
-
     setInput("");
     setLoading(true);
     setError(null);
@@ -114,7 +113,7 @@ export function Sidebar(props: { docUrl: AutomergeUrl }) {
     <div class="flex flex-col h-screen font-sans bg-gray-50">
       {/* Messages area */}
       <div class="flex-1 overflow-y-auto p-4 space-y-4">
-        <For each={doc()?.messages}>
+        <For each={doc.messages}>
           {(message) => (
             <div
               class={`flex ${
