@@ -16,6 +16,8 @@ export type CodeBlock = {
   type: "code";
   language: string | null;
   content: string;
+  result?: unknown; // JSON-serializable result from execution
+  error?: string; // Error message if execution failed
 };
 
 export type Block = TextBlock | CodeBlock;

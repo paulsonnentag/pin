@@ -2,13 +2,16 @@
 import { createSignal, type Accessor } from "solid-js";
 import type { DocHandle } from "@automerge/automerge-repo";
 import type { SidebarDoc, ChatMessage } from "./types";
-import type { Block, Message } from "../llm/types";
+import type { Block, Message, CodeBlock } from "../llm/types";
 import { AnthropicProvider } from "../llm/anthropic";
 import { parseBlocks } from "../llm/parser";
+import { runCodeOnPage } from "./evaluateOnPage";
+import { SYSTEM_PROMPT } from "./systemPrompt";
 
 /**
  * Agent manages LLM interactions with a chat document.
  * Call step() to generate an assistant response based on current messages.
+ * Executes JS code blocks and re-runs step if code returns a value.
  */
 export class Agent {
   readonly inProgress: Accessor<boolean>;
@@ -23,12 +26,14 @@ export class Agent {
   /**
    * Run one step: read current messages, generate assistant response.
    * Creates an assistant message placeholder and streams the LLM response.
+   * Executes JS code blocks and re-runs if code was executed.
    */
   async step(): Promise<void> {
     this.setInProgress(true);
 
     // Create assistant message placeholder
     const assistantMessageId = crypto.randomUUID();
+
     this.handle.change((d: SidebarDoc) => {
       if (!d.messages) d.messages = [];
       d.messages.push({
@@ -38,8 +43,12 @@ export class Agent {
       });
     });
 
+    let shouldRerun = false;
+
     try {
-      const provider = new AnthropicProvider(this.apiKey);
+      const provider = new AnthropicProvider(this.apiKey, {
+        systemPrompt: SYSTEM_PROMPT,
+      });
 
       // Get full message history and send to LLM
       const currentDoc = this.handle.doc();
@@ -59,7 +68,9 @@ export class Agent {
           const assistantMsg = d.messages.find(
             (m) => m.id === assistantMessageId
           );
-          if (!assistantMsg) return;
+          if (!assistantMsg) {
+            return;
+          }
 
           if (event.type === "create") {
             // Add new block
@@ -72,8 +83,28 @@ export class Agent {
               assistantMsg.blocks[idx] = { ...event.block };
             }
           }
-          // "complete" doesn't need special handling - block is already updated
         });
+
+        // Execute JS code blocks when complete
+        if (
+          event.type === "complete" &&
+          event.block.type === "code" &&
+          event.block.language === "js"
+        ) {
+          console.log("[Agent] Executing JS code block");
+          const blockIdx = blockIdToIndex.get(event.blockId);
+          if (blockIdx !== undefined) {
+            const hasResult = await this.executeCodeBlock(
+              assistantMessageId,
+              blockIdx,
+              event.block.content
+            );
+            // Only rerun if code returned a value
+            if (hasResult) {
+              shouldRerun = true;
+            }
+          }
+        }
       }
     } catch (err) {
       // Remove the empty assistant message on error
@@ -86,6 +117,48 @@ export class Agent {
       throw err; // Re-throw so caller can handle
     } finally {
       this.setInProgress(false);
+    }
+
+    // Re-run step if code was executed so LLM can see results
+    if (shouldRerun) {
+      await this.step();
+    }
+  }
+
+  /**
+   * Execute a JS code block and store the result/error in the document.
+   * Returns true if the code returned a non-undefined value.
+   */
+  private async executeCodeBlock(
+    messageId: string,
+    blockIdx: number,
+    code: string
+  ): Promise<boolean> {
+    try {
+      const result = await runCodeOnPage(code);
+
+      // Only store and signal rerun if result is not undefined
+      if (result !== undefined) {
+        this.handle.change((d: SidebarDoc) => {
+          const msg = d.messages.find((m) => m.id === messageId);
+          if (msg && msg.blocks[blockIdx]) {
+            const block = msg.blocks[blockIdx] as CodeBlock;
+            block.result = result;
+          }
+        });
+        return true;
+      }
+      return false;
+    } catch (err) {
+      // Store error in the block
+      this.handle.change((d: SidebarDoc) => {
+        const msg = d.messages.find((m) => m.id === messageId);
+        if (msg && msg.blocks[blockIdx]) {
+          const block = msg.blocks[blockIdx] as CodeBlock;
+          block.error = err instanceof Error ? err.message : String(err);
+        }
+      });
+      return false;
     }
   }
 }
@@ -106,7 +179,15 @@ const blocksToString = (blocks: Block[]): string => {
         return block.content;
       } else {
         const lang = block.language || "";
-        return `\`\`\`${lang}\n${block.content}\n\`\`\``;
+        let result = `\`\`\`${lang}\n${block.content}\n\`\`\``;
+        // Include execution results if present
+        if (block.result !== undefined) {
+          result += `\n[Result: ${JSON.stringify(block.result)}]`;
+        }
+        if (block.error) {
+          result += `\n[Error: ${block.error}]`;
+        }
+        return result;
       }
     })
     .join("\n");

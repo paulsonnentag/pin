@@ -4,17 +4,24 @@ import type { LLMProvider, Message } from "./types";
 export class AnthropicProvider implements LLMProvider {
   private client: Anthropic;
   private model: string;
+  private systemPrompt?: string;
 
-  constructor(apiKey: string, model = "claude-haiku-4-5-20251001") {
+  constructor(
+    apiKey: string,
+    options?: { model?: string; systemPrompt?: string }
+  ) {
     this.client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
-    this.model = model;
+    this.model = options?.model ?? "claude-haiku-4-5-20251001";
+    this.systemPrompt = options?.systemPrompt;
   }
 
   async *stream(messages: Message[]): AsyncIterable<string> {
     const response = this.client.messages.stream({
       model: this.model,
       max_tokens: 4096,
+      temperature: 0,
       messages,
+      system: this.systemPrompt,
     });
 
     for await (const event of response) {

@@ -76,12 +76,18 @@ export async function* parseBlocks(
           // Add text before the fence to accumulated text
           textContent += textBefore;
 
-          // Emit text block if we have accumulated text
+          // Complete any in-progress text block, or emit a new one if we have text
           if (textContent.length > 0) {
-            yield* startTextBlock();
+            if (!currentBlockId) {
+              // No block in progress, create one
+              yield* startTextBlock();
+            }
             yield* updateBlock(textContent);
             yield* completeBlock();
             textContent = "";
+          } else if (currentBlockId) {
+            // Empty text but block in progress, complete it
+            yield* completeBlock();
           }
 
           // Enter code block mode and emit create

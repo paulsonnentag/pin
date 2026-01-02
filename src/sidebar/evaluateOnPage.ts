@@ -34,3 +34,27 @@ export async function evaluateOnPage<T>(
 
   return results[0] as T;
 }
+
+/**
+ * Run a JavaScript code string on the current page.
+ * The code is wrapped in an async function, so `return` and `await` work.
+ * Has access to DOM and browser APIs.
+ */
+export async function runCodeOnPage<T>(codeString: string): Promise<T> {
+  const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+  if (!tab.id) throw new Error("No active tab");
+
+  // Wrap the code in an async IIFE
+  const code = `
+    (async () => {
+      ${codeString}
+    })();
+  `;
+
+  const results = await browser.tabs.executeScript(tab.id, {
+    code,
+    frameId: 0,
+  });
+
+  return results[0] as T;
+}
