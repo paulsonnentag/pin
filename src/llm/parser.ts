@@ -66,8 +66,9 @@ export async function* parseBlocks(
 
     while (true) {
       if (!inCodeBlock) {
-        // Look for opening ```
-        const fenceMatch = buffer.match(/^([\s\S]*?)```(\w*)\n?/);
+        // Look for opening ``` followed by optional language and a newline
+        // We MUST have a newline to know the language tag is complete
+        const fenceMatch = buffer.match(/^([\s\S]*?)```(\w*)\n/);
 
         if (fenceMatch) {
           const textBefore = fenceMatch[1];
@@ -200,11 +201,19 @@ export async function* parseBlocks(
 }
 
 /**
- * Find index of a potential partial fence (`, ``, or ```) at the end of text.
+ * Find index of a potential partial fence at the end of text.
+ * This includes:
+ * - Partial backticks: `, ``
+ * - Complete fence without newline: ```js (waiting for \n)
  * Returns -1 if no partial fence is found.
  */
 function findPartialFence(text: string): number {
-  // Check for partial fence at end: `, ``, or ```
+  // Check for ``` followed by word chars but no newline yet (incomplete language tag)
+  const fenceWithoutNewline = text.match(/```\w*$/);
+  if (fenceWithoutNewline) {
+    return fenceWithoutNewline.index!;
+  }
+  // Check for partial fence at end: `, ``
   if (text.endsWith("``")) return text.length - 2;
   if (text.endsWith("`")) return text.length - 1;
   return -1;

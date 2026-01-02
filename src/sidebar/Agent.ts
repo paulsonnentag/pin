@@ -86,12 +86,12 @@ export class Agent {
         });
 
         // Execute JS code blocks when complete
-        if (
-          event.type === "complete" &&
+        const isJsCode =
           event.block.type === "code" &&
-          event.block.language === "js"
-        ) {
-          console.log("[Agent] Executing JS code block");
+          (event.block.language === "js" ||
+            event.block.language === "javascript");
+
+        if (event.type === "complete" && isJsCode) {
           const blockIdx = blockIdToIndex.get(event.blockId);
           if (blockIdx !== undefined) {
             const hasResult = await this.executeCodeBlock(
