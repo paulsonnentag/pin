@@ -9,21 +9,23 @@ export interface LLMProvider {
 
 export type TextBlock = {
   type: "text";
+  id: string;
   content: string;
 };
 
-export type CodeBlock = {
-  type: "code";
-  language: string | null;
+export type DataBlock = {
+  type: "data";
+  id: string;
+  tag: string;
+  attributes: Record<string, string>;
   content: string;
-  result?: unknown; // JSON-serializable result from execution
-  error?: string; // Error message if execution failed
+  result?: unknown;
+  error?: string;
 };
 
-export type Block = TextBlock | CodeBlock;
+export type Block = TextBlock | DataBlock;
 
 export type BlockEvent = {
   type: "create" | "update" | "complete";
-  blockId: string;
   block: Block;
 };

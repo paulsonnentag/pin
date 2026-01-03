@@ -1,20 +1,23 @@
 /// <reference types="vite/client" />
 import { createSignal, For, Show, createEffect } from "solid-js";
 import { makeDocumentProjection } from "@automerge/automerge-repo-solid-primitives";
-import type { DocHandle } from "@automerge/automerge-repo";
-import type { SidebarDoc } from "./types";
-import type { Block, CodeBlock } from "../llm/types";
+import type { DocHandle, Repo } from "@automerge/vanillajs";
+import type { ChatDoc } from "./types";
+import type { Block, DataBlock } from "../llm/types";
+import type { BrowserDoc } from "../types";
 import { Agent } from "./Agent";
 
 const API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY;
 
 type SidebarProps = {
-  handle: DocHandle<SidebarDoc>;
+  handle: DocHandle<ChatDoc>;
+  repo: Repo;
+  browserDocHandle: DocHandle<BrowserDoc>;
 };
 
-export function Sidebar({ handle }: SidebarProps) {
+export function Sidebar({ handle, repo, browserDocHandle }: SidebarProps) {
   const doc = makeDocumentProjection(handle);
-  const agent = new Agent(handle, API_KEY);
+  const agent = new Agent(handle, API_KEY, repo, browserDocHandle);
 
   (window as any).currentDocHandle = handle;
 
@@ -39,12 +42,12 @@ export function Sidebar({ handle }: SidebarProps) {
     setError(null);
 
     // Add user message to doc
-    handle.change((d: SidebarDoc) => {
+    handle.change((d: ChatDoc) => {
       if (!d.messages) d.messages = [];
       d.messages.push({
         id: crypto.randomUUID(),
         role: "user",
-        blocks: [{ type: "text", content: text }],
+        blocks: [{ id: crypto.randomUUID(), type: "text", content: text }],
       });
     });
 
@@ -57,7 +60,7 @@ export function Sidebar({ handle }: SidebarProps) {
   };
 
   const handleClear = () => {
-    handle.change((d: SidebarDoc) => {
+    handle.change((d: ChatDoc) => {
       d.messages = [];
     });
     setError(null);
@@ -137,13 +140,14 @@ export function Sidebar({ handle }: SidebarProps) {
                                 {(block as Block & { type: "text" }).content}
                               </p>
                             </Show>
-                            <Show when={block.type === "code"}>
-                              <CodeBlockView
+                            <Show when={block.type === "data"}>
+                              <DataBlockView
                                 value={() =>
                                   doc.messages[msgIdx()]?.blocks[
                                     blockIdx()
-                                  ] as CodeBlock
+                                  ] as DataBlock
                                 }
+                                isStreaming={agent.inProgress}
                               />
                             </Show>
                           </>
@@ -217,19 +221,92 @@ export function Sidebar({ handle }: SidebarProps) {
   );
 }
 
-function CodeBlockView(props: { value: () => CodeBlock | undefined }) {
+function DataBlockView(props: {
+  value: () => DataBlock | undefined;
+  isStreaming: () => boolean;
+}) {
   const block = () => props.value();
+  const [isExpanded, setIsExpanded] = createSignal(false);
+
+  // Block is complete when it has result, error, or streaming has stopped
+  const isComplete = () => {
+    const b = block();
+    return b && (b.result !== undefined || b.error !== undefined || !props.isStreaming());
+  };
+
+  // Show expanded if streaming or user toggled it open
+  const showExpanded = () => !isComplete() || isExpanded();
+
+  // Get the summary text for collapsed state
+  const summaryText = () => {
+    const b = block();
+    if (!b) return "";
+    if (b.tag === "script") {
+      return b.attributes.description || "Script";
+    } else if (b.tag === "file") {
+      return b.attributes.name || "File";
+    }
+    return b.tag;
+  };
+
+  // Get tag icon
+  const tagIcon = () => {
+    const b = block();
+    if (!b) return "📦";
+    if (b.tag === "script") return "⚡";
+    if (b.tag === "file") return "📄";
+    return "📦";
+  };
 
   return (
     <div class="my-3">
-      <div class="rounded-lg overflow-hidden bg-gray-900">
-        <div class="flex items-center justify-between px-4 py-2 bg-gray-800 text-gray-400 text-xs">
-          <span>{block()?.language || "code"}</span>
-        </div>
-        <pre class="p-4 text-xs text-gray-100 overflow-x-auto">
-          <code>{block()?.content}</code>
-        </pre>
+      <div class="rounded-lg overflow-hidden border border-gray-200">
+        {/* Header - always visible */}
+        <button
+          onClick={() => setIsExpanded(!isExpanded())}
+          class="w-full flex items-center justify-between px-4 py-2 bg-gray-50 hover:bg-gray-100 text-left cursor-pointer"
+        >
+          <div class="flex items-center gap-2 text-sm">
+            <span>{tagIcon()}</span>
+            <span class="font-medium text-gray-700">{block()?.tag}</span>
+            <span class="text-gray-500">— {summaryText()}</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <Show when={!isComplete()}>
+              <div class="w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+            </Show>
+            <Show when={block()?.result !== undefined}>
+              <span class="text-xs text-emerald-600">✓</span>
+            </Show>
+            <Show when={block()?.error}>
+              <span class="text-xs text-red-600">✗</span>
+            </Show>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              class={`text-gray-400 transition-transform ${showExpanded() ? "rotate-180" : ""}`}
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </div>
+        </button>
+
+        {/* Content - collapsible */}
+        <Show when={showExpanded()}>
+          <div class="bg-gray-900">
+            <pre class="p-4 text-xs text-gray-100 overflow-x-auto">
+              <code>{block()?.content}</code>
+            </pre>
+          </div>
+        </Show>
       </div>
+
+      {/* Result/Error - always visible when present */}
       <Show when={block()?.result !== undefined}>
         <div class="mt-2 p-3 text-xs bg-emerald-50 border border-emerald-200 rounded-lg">
           <span class="font-medium text-emerald-700">Result: </span>

@@ -8,6 +8,6 @@ export type ChatMessage = {
 };
 
 // Document type for sidebar chat state
-export type SidebarDoc = {
+export type ChatDoc = {
   messages: ChatMessage[];
 };

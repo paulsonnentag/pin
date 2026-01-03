@@ -8,6 +8,9 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   plugins: [solid(), wasm(), topLevelAwait(), tailwindcss()],
   base: "./",
+  test: {
+    environment: "node",
+  },
   build: {
     target: "esnext",
     minify: false,
