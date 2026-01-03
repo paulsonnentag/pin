@@ -31,7 +31,7 @@ export const GOOGLEMAPS_MOD: LibraryMod = {
                 ? position.lng()
                 : position.lng;
 
-            const handle = await api.getTabDocHandle();
+            const handle = await api.getSiteDocHandle();
             handle.change((doc: any) => {
               if (!doc.objects) doc.objects = {};
               let marker = doc.objects[markerId];

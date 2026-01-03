@@ -1,10 +1,10 @@
 import { AutomergeUrl, DocHandle } from "@automerge/vanillajs";
-import { TabDoc } from "../types";
+import { SiteDoc } from "../types";
 import { repo } from "./repo";
 import { rpcCall } from "./rpc";
 
 export type API = {
-  getTabDocHandle: () => Promise<DocHandle<TabDoc>>;
+  getSiteDocHandle: () => Promise<DocHandle<SiteDoc>>;
   repo: typeof repo;
 };
 
@@ -13,10 +13,13 @@ export { extractPageText } from "./dom";
 export { evaluateOnPage } from "../sidebar/evaluateOnPage";
 
 /**
- * Get the automerge document URL for the current tab.
+ * Get the automerge document handle for the current site (by hostname).
  */
-export async function getTabDocHandle(): Promise<DocHandle<TabDoc>> {
-  const docUrl = (await rpcCall("getTabUrl")) as AutomergeUrl;
+export async function getSiteDocHandle(): Promise<DocHandle<SiteDoc>> {
+  const docUrl = (await rpcCall("getSiteDocUrl")) as AutomergeUrl;
 
-  return await repo.find<TabDoc>(docUrl);
+  return await repo.find<SiteDoc>(docUrl);
 }
+
+// Legacy alias for backwards compatibility
+export const getTabDocHandle = getSiteDocHandle;

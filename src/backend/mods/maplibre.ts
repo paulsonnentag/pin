@@ -24,7 +24,7 @@ export const MAPLIBRE_MOD: LibraryMod = {
             const lng = options.lngLat.lng;
             const lat = options.lngLat.lat;
 
-            const handle = await api.getTabDocHandle();
+            const handle = await api.getSiteDocHandle();
             handle.change((doc: any) => {
               if (!doc.markers) doc.markers = {};
               doc.objects[markerId] = {
@@ -51,7 +51,7 @@ export const MAPLIBRE_MOD: LibraryMod = {
               lat = lngLatLike.lat;
             }
 
-            const handle = await api.getTabDocHandle();
+            const handle = await api.getSiteDocHandle();
             handle.change((doc: any) => {
               if (!doc.objects) doc.objects = {};
               let marker = doc.objects[markerId];

@@ -2,19 +2,20 @@ import type { WebRequest } from "webextension-polyfill";
 import browser from "webextension-polyfill";
 
 // Main background script that initializes all extension functionality
+import {
+  DocHandle,
+  IndexedDBStorageAdapter,
+  MessageChannelNetworkAdapter,
+  Repo,
+  WebSocketClientAdapter,
+  isValidAutomergeUrl,
+} from "@automerge/vanillajs";
+import type { FolderDoc } from "@inkandswitch/patchwork-filesystem";
+import type { BrowserDoc, SiteDoc } from "../types";
+import { BackgroundMessagePort } from "./BackgroundMessagePort";
 import { applyLibraryMods } from "./mods";
 import { GOOGLEMAPS_MOD } from "./mods/googlemaps";
 import { MAPLIBRE_MOD } from "./mods/maplibre";
-import {
-  IndexedDBStorageAdapter,
-  WebSocketClientAdapter,
-  MessageChannelNetworkAdapter,
-  Repo,
-  isValidAutomergeUrl,
-  DocHandle,
-} from "@automerge/vanillajs";
-import { BackgroundMessagePort } from "./BackgroundMessagePort";
-import type { BrowserDoc, TabDoc } from "../types";
 
 const BROWSER_DOC_URL_KEY = "browserDocUrl";
 
@@ -28,8 +29,43 @@ const repo = new Repo({
 
 (window as any).repo = repo;
 
+// Helper to extract hostname from URL
+const getHostname = (url: string): string | null => {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return null;
+  }
+};
+
+// Get or create a site document for a given hostname
+const getOrCreateSiteDoc = async (
+  browserDocHandle: DocHandle<BrowserDoc>,
+  hostname: string
+): Promise<DocHandle<SiteDoc>> => {
+  const doc = browserDocHandle.doc();
+  const existingSiteDocUrl = doc?.siteDocs?.[hostname];
+
+  if (existingSiteDocUrl && isValidAutomergeUrl(existingSiteDocUrl)) {
+    return await repo.find<SiteDoc>(existingSiteDocUrl);
+  }
+
+  // Create new site document
+  const siteDocHandle = repo.create<SiteDoc>({ objects: {} });
+
+  // Update browser doc with site document URL
+  browserDocHandle.change((d: BrowserDoc) => {
+    if (!d.siteDocs) d.siteDocs = {};
+    d.siteDocs[hostname] = siteDocHandle.url;
+  });
+
+  return siteDocHandle;
+};
+
 // Create or load the browser document
-const getOrCreateBrowserDocHandle = async () => {
+const getOrCreateBrowserDocHandle = async (): Promise<
+  DocHandle<BrowserDoc>
+> => {
   const stored = await browser.storage.local.get(BROWSER_DOC_URL_KEY);
   const storedUrl = stored[BROWSER_DOC_URL_KEY];
 
@@ -38,13 +74,25 @@ const getOrCreateBrowserDocHandle = async () => {
     return handle;
   }
 
-  // Create new browser doc
-  const handle = repo.create<BrowserDoc>({ tabs: {} });
+  // Create extension folder
+  const folderHandle = repo.create<FolderDoc>({
+    title: "Pin Extension",
+    docs: [],
+  });
+
+  // Create new browser doc with extension folder
+  const handle = repo.create<BrowserDoc>({
+    tabs: {},
+    siteDocs: {},
+    extensionFolderUrl: folderHandle.url,
+  });
+
   await browser.storage.local.set({ [BROWSER_DOC_URL_KEY]: handle.url });
   return handle;
 };
 
-(globalThis as any).browserDocHandle = await getOrCreateBrowserDocHandle();
+const browserDocHandle = await getOrCreateBrowserDocHandle();
+(globalThis as any).browserDocHandle = browserDocHandle;
 
 // Track if we're updating to avoid loops
 let updatingActiveTabFromDoc = false;
@@ -52,8 +100,6 @@ let updatingActiveTabFromBrowser = false;
 
 // Initialize active tab tracking
 const initActiveTabSync = async () => {
-  const browserDocHandle = await getOrCreateBrowserDocHandle();
-
   // Get current active tab and set it in the doc
   const [activeTab] = await browser.tabs.query({
     active: true,
@@ -65,6 +111,9 @@ const initActiveTabSync = async () => {
       updatingActiveTabFromBrowser = true;
       browserDocHandle.change((doc: BrowserDoc) => {
         doc.activeTabId = activeTab.id;
+        if (activeTab.url) {
+          doc.tabs[activeTab.id!] = activeTab.url;
+        }
       });
       updatingActiveTabFromBrowser = false;
     }
@@ -110,37 +159,55 @@ const initActiveTabSync = async () => {
 
 initActiveTabSync();
 
+// Monitor URL changes in tabs
+browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.url) {
+    const newUrl = changeInfo.url;
+    const hostname = getHostname(newUrl);
+
+    browserDocHandle.change((doc: BrowserDoc) => {
+      // Update tabs record with new URL
+      doc.tabs[tabId] = newUrl;
+    });
+
+    // Ensure siteDoc exists for this hostname
+    if (hostname) {
+      getOrCreateSiteDoc(browserDocHandle, hostname).catch(console.error);
+    }
+  }
+});
+
+// Clean up when tab is closed
+browser.tabs.onRemoved.addListener((tabId) => {
+  browserDocHandle.change((doc: BrowserDoc) => {
+    delete doc.tabs[tabId];
+  });
+});
+
 // Listen for tab connections and dynamically add network adapters
 browser.runtime.onConnect.addListener(async (port) => {
   if (port.name !== "automerge-repo") return;
 
-  const browserDocHandle = await getOrCreateBrowserDocHandle();
-
   const tabId = port.sender?.tab?.id;
   const tabUrl = port.sender?.tab?.url;
 
-  if (tabId === undefined) return;
+  if (tabId === undefined || !tabUrl) return;
 
-  // Check if tab already has a document
-  const existingTabDocUrl = browserDocHandle.doc()?.tabs[tabId]?.docUrl;
+  const hostname = getHostname(tabUrl);
+  if (!hostname) return;
 
-  let tabDocHandle: DocHandle<TabDoc>;
-  if (existingTabDocUrl && isValidAutomergeUrl(existingTabDocUrl)) {
-    tabDocHandle = await repo.find<TabDoc>(existingTabDocUrl);
-  } else {
-    // Create new tab document
-    tabDocHandle = repo.create<TabDoc>({ pageUrl: tabUrl, objects: {} });
+  // Update tabs record with current URL
+  browserDocHandle.change((doc: BrowserDoc) => {
+    doc.tabs[tabId] = tabUrl;
+  });
 
-    // Update browser doc with tab's document URL
-    browserDocHandle.change((doc: BrowserDoc) => {
-      doc.tabs[tabId] = { docUrl: tabDocHandle.url };
-    });
-  }
+  // Get or create site document for this hostname
+  const siteDocHandle = await getOrCreateSiteDoc(browserDocHandle, hostname);
 
   // Handle RPC messages from this tab
   port.onMessage.addListener((msg: any) => {
     if (msg?.type === "pin-rpc") {
-      handleRpcMessage(port, msg, tabId);
+      handleRpcMessage(port, msg, tabUrl);
     }
   });
 
@@ -157,13 +224,8 @@ browser.runtime.onConnect.addListener(async (port) => {
   // Handle disconnection (tab closed or navigated away)
   port.onDisconnect.addListener(() => {
     console.log("tab disconnected", tabId);
-
-    // repo.networkSubsystem.removeNetworkAdapter(adapter);
-
-    // Remove from browser doc
-    browserDocHandle.change((doc: BrowserDoc) => {
-      delete doc.tabs[tabId];
-    });
+    // Don't remove from tabs - that's handled by onRemoved
+    // Don't remove siteDoc - other tabs may use same hostname
   });
 });
 
@@ -171,16 +233,21 @@ browser.runtime.onConnect.addListener(async (port) => {
 const handleRpcMessage = async (
   port: browser.Runtime.Port,
   msg: { type: string; method: string; id: string },
-  tabId: number
+  tabUrl: string
 ) => {
   const { method, id } = msg;
-  const browserDoc = (await getOrCreateBrowserDocHandle()).doc();
+  const browserDoc = browserDocHandle.doc();
+  const hostname = getHostname(tabUrl);
 
   let result: unknown;
 
   switch (method) {
+    case "getSiteDocUrl":
+      result = hostname ? browserDoc?.siteDocs?.[hostname] : null;
+      break;
+    // Legacy support
     case "getTabUrl":
-      result = browserDoc?.tabs[tabId]?.docUrl;
+      result = hostname ? browserDoc?.siteDocs?.[hostname] : null;
       break;
     default:
       result = null;

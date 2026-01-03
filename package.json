@@ -30,6 +30,7 @@
     "@automerge/automerge-repo-solid-primitives": "^2.5.1",
     "@automerge/automerge-repo-storage-indexeddb": "^2.5.1",
     "@automerge/vanillajs": "^2.4.0",
+    "@inkandswitch/patchwork-filesystem": "^0.0.3",
     "acorn": "^8.15.0",
     "acorn-walk": "^8.3.4",
     "astring": "^1.9.0",

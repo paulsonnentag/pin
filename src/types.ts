@@ -1,7 +1,16 @@
-// BrowserDoc tracks all tabs and their corresponding document URLs
+import type { AutomergeUrl } from "@automerge/vanillajs";
+
+// BrowserDoc tracks all tabs and site documents
 export type BrowserDoc = {
-  tabs: Record<number, { docUrl: string }>;
+  tabs: Record<number, string>; // tabId -> current URL
+  siteDocs: Record<string, AutomergeUrl>; // hostname -> automergeUrl
+  extensionFolderUrl: AutomergeUrl;
   activeTabId?: number;
+};
+
+// SiteDoc stores data for a single site (by hostname)
+export type SiteDoc = {
+  objects: Record<string, any>;
 };
 
 // Marker position
@@ -15,9 +24,5 @@ export type WithGeopositon = {
   position: Geolocation;
 };
 
-// TabDoc stores data for a single tab
-export type TabDoc = {
-  title?: string;
-  pageUrl?: string;
-  objects: Record<string, any>;
-};
+// Re-export TabDoc as alias for backwards compatibility
+export type TabDoc = SiteDoc;
