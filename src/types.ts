@@ -1,10 +1,17 @@
 import type { AutomergeUrl } from "@automerge/vanillajs";
 
+// Host extension configuration
+export type HostExtensionConfig = {
+  host: string;
+  extensions: string[]; // filenames in the folder
+};
+
 // BrowserDoc tracks all tabs and site documents
 export type BrowserDoc = {
   tabs: Record<number, string>; // tabId -> current URL
   siteDocs: Record<string, AutomergeUrl>; // hostname -> automergeUrl
   extensionFolderUrl: AutomergeUrl;
+  hostExtensions: HostExtensionConfig[];
   activeTabId?: number;
 };
 

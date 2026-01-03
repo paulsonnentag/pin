@@ -1,4 +1,3 @@
-import browser from "webextension-polyfill";
 import type * as API from "../frontend/api";
 
 type APIModule = typeof API;

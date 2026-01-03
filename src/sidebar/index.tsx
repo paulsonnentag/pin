@@ -1,6 +1,5 @@
 import { render } from "solid-js/web";
 import type { AutomergeUrl } from "@automerge/automerge-repo";
-import browser from "webextension-polyfill";
 import { Sidebar } from "./Sidebar";
 import type { SidebarDoc } from "./types";
 import { repo } from "./repo";

@@ -1,7 +1,11 @@
-import type { WebRequest } from "webextension-polyfill";
-import browser from "webextension-polyfill";
+/**
+ * Background Script
+ *
+ * Main entry point for the extension's background context.
+ * Initializes the Automerge repo, browser document, and all subsystems.
+ */
 
-// Main background script that initializes all extension functionality
+import type { Runtime } from "webextension-polyfill";
 import {
   DocHandle,
   IndexedDBStorageAdapter,
@@ -10,12 +14,21 @@ import {
   WebSocketClientAdapter,
   isValidAutomergeUrl,
 } from "@automerge/vanillajs";
-import type { FolderDoc } from "@inkandswitch/patchwork-filesystem";
-import type { BrowserDoc, SiteDoc } from "../types";
+import {
+  type FolderDoc,
+  type UnixFileEntry,
+} from "@inkandswitch/patchwork-filesystem";
+import type { BrowserDoc } from "../types";
 import { BackgroundMessagePort } from "./BackgroundMessagePort";
-import { applyLibraryMods } from "./mods";
+import { applyLibraryMods, transformResponse } from "./mods";
 import { GOOGLEMAPS_MOD } from "./mods/googlemaps";
 import { MAPLIBRE_MOD } from "./mods/maplibre";
+import { loadAndRedirectToDataUrl } from "./automerge-file-server";
+import { initTabManager, getOrCreateSiteDoc, getHostname } from "./tab-manager";
+
+// ============================================================================
+// Repo Initialization
+// ============================================================================
 
 const BROWSER_DOC_URL_KEY = "browserDocUrl";
 
@@ -29,40 +42,10 @@ const repo = new Repo({
 
 (window as any).repo = repo;
 
-// Helper to extract hostname from URL
-const getHostname = (url: string): string | null => {
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return null;
-  }
-};
+// ============================================================================
+// Browser Document Management
+// ============================================================================
 
-// Get or create a site document for a given hostname
-const getOrCreateSiteDoc = async (
-  browserDocHandle: DocHandle<BrowserDoc>,
-  hostname: string
-): Promise<DocHandle<SiteDoc>> => {
-  const doc = browserDocHandle.doc();
-  const existingSiteDocUrl = doc?.siteDocs?.[hostname];
-
-  if (existingSiteDocUrl && isValidAutomergeUrl(existingSiteDocUrl)) {
-    return await repo.find<SiteDoc>(existingSiteDocUrl);
-  }
-
-  // Create new site document
-  const siteDocHandle = repo.create<SiteDoc>({ objects: {} });
-
-  // Update browser doc with site document URL
-  browserDocHandle.change((d: BrowserDoc) => {
-    if (!d.siteDocs) d.siteDocs = {};
-    d.siteDocs[hostname] = siteDocHandle.url;
-  });
-
-  return siteDocHandle;
-};
-
-// Create or load the browser document
 const getOrCreateBrowserDocHandle = async (): Promise<
   DocHandle<BrowserDoc>
 > => {
@@ -70,21 +53,50 @@ const getOrCreateBrowserDocHandle = async (): Promise<
   const storedUrl = stored[BROWSER_DOC_URL_KEY];
 
   if (storedUrl && isValidAutomergeUrl(storedUrl)) {
-    const handle = repo.find<BrowserDoc>(storedUrl);
-    return handle;
+    return repo.find<BrowserDoc>(storedUrl);
   }
 
-  // Create extension folder
-  const folderHandle = repo.create<FolderDoc>({
-    title: "Pin Extension",
-    docs: [],
+  // Create example extension file
+  const exampleExtensionCode = `
+// Example extension for example.com
+console.log("[Pin] This is example.com - extension loaded!");
+console.log("[Pin] Current URL:", location.href);
+
+export default function() {
+  console.log("[Pin] Extension default function called");
+}
+`.trim();
+
+  const exampleFileHandle = repo.create<UnixFileEntry>({
+    name: "example-extension.js",
+    content: exampleExtensionCode,
+    extension: "js",
+    mimeType: "application/javascript",
   });
 
-  // Create new browser doc with extension folder
+  // Create extension folder with example file
+  const folderHandle = repo.create<FolderDoc>({
+    title: "Pin Extension",
+    docs: [
+      {
+        name: "example-extension.js",
+        type: "file",
+        url: exampleFileHandle.url,
+      },
+    ],
+  });
+
+  // Create new browser doc with extension folder and example config
   const handle = repo.create<BrowserDoc>({
     tabs: {},
     siteDocs: {},
     extensionFolderUrl: folderHandle.url,
+    hostExtensions: [
+      {
+        host: "example.com",
+        extensions: ["example-extension.js"],
+      },
+    ],
   });
 
   await browser.storage.local.set({ [BROWSER_DOC_URL_KEY]: handle.url });
@@ -94,97 +106,28 @@ const getOrCreateBrowserDocHandle = async (): Promise<
 const browserDocHandle = await getOrCreateBrowserDocHandle();
 (globalThis as any).browserDocHandle = browserDocHandle;
 
-// Track if we're updating to avoid loops
-let updatingActiveTabFromDoc = false;
-let updatingActiveTabFromBrowser = false;
+// ============================================================================
+// Debug Utilities
+// ============================================================================
 
-// Initialize active tab tracking
-const initActiveTabSync = async () => {
-  // Get current active tab and set it in the doc
-  const [activeTab] = await browser.tabs.query({
-    active: true,
-    currentWindow: true,
-  });
-  if (activeTab?.id !== undefined) {
-    const currentActiveTabId = browserDocHandle.doc()?.activeTabId;
-    if (currentActiveTabId !== activeTab.id) {
-      updatingActiveTabFromBrowser = true;
-      browserDocHandle.change((doc: BrowserDoc) => {
-        doc.activeTabId = activeTab.id;
-        if (activeTab.url) {
-          doc.tabs[activeTab.id!] = activeTab.url;
-        }
-      });
-      updatingActiveTabFromBrowser = false;
-    }
-  }
-
-  // Listen for tab activation changes -> update doc
-  browser.tabs.onActivated.addListener(async (activeInfo) => {
-    if (updatingActiveTabFromDoc) return;
-
-    updatingActiveTabFromBrowser = true;
-    browserDocHandle.change((doc: BrowserDoc) => {
-      doc.activeTabId = activeInfo.tabId;
-    });
-    updatingActiveTabFromBrowser = false;
-  });
-
-  // Listen for doc changes -> update active tab
-  browserDocHandle.on("change", async ({ doc }) => {
-    if (updatingActiveTabFromBrowser) return;
-    if (doc.activeTabId === undefined) return;
-
-    // Check if the tab exists before trying to activate it
-    try {
-      const tab = await browser.tabs.get(doc.activeTabId);
-      if (!tab) return;
-
-      // Get current active tab
-      const [currentActive] = await browser.tabs.query({
-        active: true,
-        currentWindow: true,
-      });
-
-      if (currentActive?.id !== doc.activeTabId) {
-        updatingActiveTabFromDoc = true;
-        await browser.tabs.update(doc.activeTabId, { active: true });
-        updatingActiveTabFromDoc = false;
-      }
-    } catch {
-      // Tab doesn't exist, ignore
-    }
-  });
+const resetState = async () => {
+  console.log("[Pin] Resetting all state...");
+  await browser.storage.local.clear();
+  console.log("[Pin] Storage cleared. Reloading extension...");
+  browser.runtime.reload();
 };
+(globalThis as any).resetState = resetState;
 
-initActiveTabSync();
+// ============================================================================
+// Tab Management
+// ============================================================================
 
-// Monitor URL changes in tabs
-browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.url) {
-    const newUrl = changeInfo.url;
-    const hostname = getHostname(newUrl);
+initTabManager(repo, browserDocHandle);
 
-    browserDocHandle.change((doc: BrowserDoc) => {
-      // Update tabs record with new URL
-      doc.tabs[tabId] = newUrl;
-    });
+// ============================================================================
+// Tab Connections (Automerge Network)
+// ============================================================================
 
-    // Ensure siteDoc exists for this hostname
-    if (hostname) {
-      getOrCreateSiteDoc(browserDocHandle, hostname).catch(console.error);
-    }
-  }
-});
-
-// Clean up when tab is closed
-browser.tabs.onRemoved.addListener((tabId) => {
-  browserDocHandle.change((doc: BrowserDoc) => {
-    delete doc.tabs[tabId];
-  });
-});
-
-// Listen for tab connections and dynamically add network adapters
 browser.runtime.onConnect.addListener(async (port) => {
   if (port.name !== "automerge-repo") return;
 
@@ -202,7 +145,7 @@ browser.runtime.onConnect.addListener(async (port) => {
   });
 
   // Get or create site document for this hostname
-  const siteDocHandle = await getOrCreateSiteDoc(browserDocHandle, hostname);
+  await getOrCreateSiteDoc(repo, browserDocHandle, hostname);
 
   // Handle RPC messages from this tab
   port.onMessage.addListener((msg: any) => {
@@ -224,14 +167,15 @@ browser.runtime.onConnect.addListener(async (port) => {
   // Handle disconnection (tab closed or navigated away)
   port.onDisconnect.addListener(() => {
     console.log("tab disconnected", tabId);
-    // Don't remove from tabs - that's handled by onRemoved
-    // Don't remove siteDoc - other tabs may use same hostname
   });
 });
 
-// Handle RPC messages from tabs
-const handleRpcMessage = async (
-  port: browser.Runtime.Port,
+// ============================================================================
+// RPC Handler
+// ============================================================================
+
+const handleRpcMessage = (
+  port: Runtime.Port,
   msg: { type: string; method: string; id: string },
   tabUrl: string
 ) => {
@@ -245,7 +189,6 @@ const handleRpcMessage = async (
     case "getSiteDocUrl":
       result = hostname ? browserDoc?.siteDocs?.[hostname] : null;
       break;
-    // Legacy support
     case "getTabUrl":
       result = hostname ? browserDoc?.siteDocs?.[hostname] : null;
       break;
@@ -260,46 +203,60 @@ const handleRpcMessage = async (
   });
 };
 
-// Toggle sidebar when browser action button is clicked
+// ============================================================================
+// Browser Action
+// ============================================================================
+
 browser.browserAction.onClicked.addListener(() => {
   browser.sidebarAction.toggle();
 });
 
-// Intercept and modify JS responses
+// ============================================================================
+// Request Interception
+// ============================================================================
+
+// Intercept requests and serve Automerge files or apply JS transforms
 browser.webRequest.onBeforeRequest.addListener(
   (request) => {
-    // Check if the request is for a JavaScript file
+    // Serve files from Automerge via /pin-automerge-files/<automergeUrl>/<path>
+    const pinFilesMatch = request.url.match(
+      /\/pin-automerge-files\/(automerge:[^/]+)\/(.+)$/
+    );
+    if (pinFilesMatch) {
+      const [, automergeUrl, filePath] = pinFilesMatch;
+      return loadAndRedirectToDataUrl(repo, automergeUrl, filePath.split("/"));
+    }
+
+    // Apply library mods to JavaScript files
     if (request.type === "script" || request.url.endsWith(".js")) {
       transformResponse(request, (source) =>
         applyLibraryMods(source, [MAPLIBRE_MOD, GOOGLEMAPS_MOD])
       );
     }
   },
-  { urls: ["<all_urls>"] },
+  { urls: ["<all_urls>", browser.runtime.getURL("*")] },
   ["blocking"]
 );
 
-const transformResponse = (
-  request: WebRequest.OnBeforeRequestDetailsType,
-  transform: (response: string) => string
-) => {
-  const filter = browser.webRequest.filterResponseData(request.requestId);
+// Fix Content-Type header for virtual automerge files
+browser.webRequest.onHeadersReceived.addListener(
+  (details) => {
+    if (!details.url.includes("/pin-automerge-files/")) {
+      return;
+    }
 
-  const decoder = new TextDecoder("utf-8");
-  const encoder = new TextEncoder();
+    const responseHeaders =
+      details.responseHeaders?.filter(
+        (header) => header.name.toLowerCase() !== "content-type"
+      ) || [];
 
-  let responseData = "";
+    responseHeaders.push({
+      name: "Content-Type",
+      value: "application/javascript; charset=utf-8",
+    });
 
-  filter.ondata = (event) => {
-    responseData += decoder.decode(event.data, { stream: true });
-  };
-
-  filter.onstop = () => {
-    responseData += decoder.decode();
-
-    const transformedResponse = transform(responseData);
-
-    filter.write(encoder.encode(transformedResponse));
-    filter.close();
-  };
-};
+    return { responseHeaders };
+  },
+  { urls: ["<all_urls>"] },
+  ["blocking", "responseHeaders"]
+);
